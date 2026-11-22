@@ -29,7 +29,7 @@ services:
       POSTGRES_USER: invoice_app
       POSTGRES_PASSWORD: invoice_app_dev_password
     ports:
-      - "5433:5432" # 5433 on the host, so it never clashes with a locally installed PostgreSQL
+      - "127.0.0.1:5433:5432" # this computer only (not the network); 5433 avoids a local PostgreSQL
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -43,7 +43,7 @@ services:
   redis:
     image: redis:7-alpine
     ports:
-      - "6380:6379" # 6380 on the host, so it never clashes with a locally installed Redis
+      - "127.0.0.1:6380:6379" # this computer only; 6380 avoids a locally installed Redis
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s

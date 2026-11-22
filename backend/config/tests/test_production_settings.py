@@ -11,6 +11,9 @@ from pathlib import Path
 import pytest
 
 BACKEND = Path(__file__).resolve().parents[2]
+# The placeholder used only while building the image (see backend/Dockerfile). It is
+# public in the repository, so production must refuse it at runtime.
+DOCKERFILE_BUILD_KEY = "build-only-not-used-at-runtime-0123456789abcdefghijklmnopqrstuvwxyz"
 
 GOOD = {
     "DJANGO_SETTINGS_MODULE": "config.settings.production",
@@ -41,6 +44,8 @@ def test_django_deployment_check_passes():
     [
         ({"DJANGO_SECRET_KEY": "too-short"}, "DJANGO_SECRET_KEY"),
         ({"DJANGO_SECRET_KEY": "ab" * 30}, "DJANGO_SECRET_KEY"),  # long but only 2 distinct
+        # The public build-time placeholder from the Dockerfile must never work at runtime.
+        ({"DJANGO_SECRET_KEY": DOCKERFILE_BUILD_KEY}, "DJANGO_SECRET_KEY"),
         ({"DJANGO_SECRET_KEY": "change-me-" + "x" * 50}, "DJANGO_SECRET_KEY"),
         ({"DJANGO_ALLOWED_HOSTS": ""}, "DJANGO_ALLOWED_HOSTS"),
         ({"DJANGO_ALLOWED_HOSTS": "*"}, "DJANGO_ALLOWED_HOSTS"),

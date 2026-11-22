@@ -85,6 +85,84 @@ docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
 **backwards-compatible for one release** (add columns as nullable, remove them a
 release later), because the old backend keeps serving until the new one is healthy.
 
+## GitHub Actions (automatic deployment)
+
+`.github/workflows/deploy.yml` deploys every commit on `main` that passes CI:
+
+```
+push to main → CI passes → build images → push ghcr.io/<owner>/…:<commit sha>
+             → SSH to server → compose pull → compose up -d (migrate runs first)
+             → wait until https://<site>/api/v1/health/ reports that commit as healthy
+```
+
+The server never builds anything and never needs the source code: it receives the
+compose file and pulls the exact images CI built. Only one deploy runs at a time.
+
+### One-time server setup
+
+On a Linux server (e.g. Ubuntu 24.04) with Docker Engine + the Compose plugin installed:
+
+```bash
+# 1. A dedicated deploy user that may run Docker (and nothing else special).
+sudo adduser --disabled-password --gecos "" deploy
+sudo usermod -aG docker deploy
+
+# 2. The app folder with the production configuration (never in git).
+sudo mkdir -p /opt/invoice-automation && sudo chown deploy:deploy /opt/invoice-automation
+sudo -u deploy nano /opt/invoice-automation/.env.prod     # from .env.prod.example
+sudo -u deploy chmod 600 /opt/invoice-automation/.env.prod
+
+# 3. A key pair used ONLY by GitHub Actions to log in as `deploy`.
+ssh-keygen -t ed25519 -N "" -C "github-actions-deploy" -f deploy_key
+sudo -u deploy mkdir -p -m 700 /home/deploy/.ssh
+cat deploy_key.pub | sudo -u deploy tee -a /home/deploy/.ssh/authorized_keys
+# deploy_key (the private half) goes into the GitHub secret below; then delete it here.
+
+# 4. The server's host key, so GitHub can verify it's talking to YOUR server.
+ssh-keyscan -t ed25519 your.server.ip      # copy this line into SSH_KNOWN_HOSTS
+```
+
+Also put the HTTPS proxy in front of port 8080 (see **HTTPS** below), and make sure
+`APP_URL` (below) answers over HTTPS before the first deploy.
+
+### GitHub settings
+
+**Settings → Environments → New environment → `production`.** Optionally add
+*Required reviewers*: then every deploy waits until a named person clicks **Approve**.
+
+In that environment add:
+
+| Kind | Name | Value |
+|---|---|---|
+| Secret | `SSH_HOST` | Server IP or host name |
+| Secret | `SSH_USER` | `deploy` |
+| Secret | `SSH_PRIVATE_KEY` | Contents of `deploy_key` (the private key) |
+| Secret | `SSH_KNOWN_HOSTS` | The line printed by `ssh-keyscan` |
+| Variable | `APP_URL` | Public URL, e.g. `https://billing.example.com` (used for the health check) |
+| Variable | `DEPLOY_PATH` | Optional; default `/opt/invoice-automation` |
+| Variable | `SSH_PORT` | Optional; default `22` |
+
+No registry password is needed: the workflow's own short-lived `GITHUB_TOKEN` pushes the
+images, and the server uses that same token only during the deploy to pull them.
+Images are private if the repository is private.
+
+### Rolling back
+
+**Actions → Deploy → Run workflow**, enter the commit SHA of the last good version. The
+same images are pulled again (they're kept in ghcr.io) and started. Database migrations
+are **not** reversed automatically; that is why migrations must stay
+backwards-compatible for one release (see *Updating to a new version*).
+
+### What the workflow does for safety
+
+* Deploys only after CI succeeded; one deploy at a time; nothing cancelled halfway.
+* Minimal permissions per job (`packages: write` only for the job that pushes).
+* The server's SSH host key is pinned (`StrictHostKeyChecking yes`); the private key is
+  deleted from the runner at the end.
+* The manual "version" input must be a commit SHA, and is never pasted into a script.
+* The deploy fails (red in the Actions tab) if the site doesn't report the new commit
+  as healthy within 5 minutes, so a broken deploy is visible immediately.
+
 ## HTTPS
 
 Run a TLS-terminating proxy in front of `web`: a cloud load balancer, Caddy, Traefik, or

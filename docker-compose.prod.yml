@@ -1,7 +1,12 @@
 # Production stack. Configuration comes from .env.prod (copy .env.prod.example; never
 # commit the real file). See docs/deployment.md for the full procedure.
 #
-#   docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
+# Two ways to run it:
+#   build on the server:   docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
+#   pull built images:     docker compose -f docker-compose.prod.yml --env-file .env.prod pull
+#   (GitHub Actions)       docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --no-build
+# BACKEND_IMAGE / WEB_IMAGE / APP_VERSION in .env.prod choose which images; the deploy
+# workflow sets APP_VERSION to the commit being deployed.
 #
 # Only nginx ("web") publishes a port. PostgreSQL, Redis and Django are reachable only
 # inside this private network. Put a TLS-terminating proxy / load balancer in front of
@@ -11,12 +16,15 @@ x-app: &app
   build:
     context: ./backend
     target: prod
-  image: invoice-automation-backend:${APP_VERSION:-latest}
+  image: ${BACKEND_IMAGE:-invoice-automation-backend}:${APP_VERSION:-latest}
   env_file: ${ENV_FILE:-.env.prod}
   environment:
     POSTGRES_HOST: db
     POSTGRES_PORT: "5432"
     REDIS_URL: redis://redis:6379
+    # The version actually running (the deploy sets it to the commit SHA), so
+    # /api/v1/health/ always tells you which commit is live.
+    APP_VERSION: ${APP_VERSION:-latest}
   restart: unless-stopped
 
 services:
@@ -89,7 +97,7 @@ services:
 
   web:
     build: ./frontend
-    image: invoice-automation-web:${APP_VERSION:-latest}
+    image: ${WEB_IMAGE:-invoice-automation-web}:${APP_VERSION:-latest}
     ports:
       - "${WEB_PORT:-8080}:8080"
     depends_on:

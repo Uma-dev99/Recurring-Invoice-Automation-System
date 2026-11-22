@@ -32,7 +32,9 @@ DEBUG = False
 if (
     len(SECRET_KEY) < 50
     or len(set(SECRET_KEY)) < 5
-    or SECRET_KEY.startswith(("change-me", "docker-dev", "test-only", "django-insecure-"))
+    or SECRET_KEY.startswith(
+        ("change-me", "docker-dev", "test-only", "ci-only", "build-only", "django-insecure-")
+    )
 ):
     raise ImproperlyConfigured(
         "DJANGO_SECRET_KEY must be a long random value (50+ characters) in production. "
