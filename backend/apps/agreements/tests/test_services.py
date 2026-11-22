@@ -14,6 +14,7 @@ from apps.agreements.exceptions import (
 )
 from apps.agreements.models import BillingAgreement
 from apps.agreements.tests.factories import agreement_data, make_agreement
+from apps.billing.exceptions import PeriodsAlreadyInvoiced
 from apps.customers.models import Customer
 from apps.customers.tests.factories import make_customer
 from apps.operations.models import AuditLog
@@ -206,6 +207,7 @@ def test_cancel_sets_cancelled_at_and_records_reason(user):
     assert audit.action == "agreement.cancelled"
     assert audit.changes == {
         "status": {"old": "ACTIVE", "new": "CANCELLED"},
+        "periods_cancelled": 0,  # made via the factory, so it has no schedule
         "reason": "Customer moved abroad",
     }
 
@@ -249,3 +251,172 @@ def test_status_change_is_rolled_back_when_audit_fails(user):
     agreement.refresh_from_db()
     assert agreement.status == Status.ACTIVE
     assert agreement.version == 1
+
+
+# --- billing periods (Phase 4) ------------------------------------------------------
+
+
+def period_statuses(agreement: BillingAgreement) -> list[str]:
+    return list(agreement.periods.order_by("cycle_number").values_list("status", flat=True))
+
+
+def test_create_generates_the_whole_schedule_in_the_same_transaction(user):
+    agreement = services.create_agreement(
+        customer=make_customer(), data=create_data(total_cycles=12), actor=user
+    )
+
+    assert agreement.periods.count() == 12
+    assert audit_rows(agreement)[0].changes["periods_generated"] == 12
+
+
+def test_no_agreement_without_its_schedule(user):
+    # If generating periods fails, the agreement must not exist either.
+    with mock.patch.object(
+        services.billing_services, "generate_periods", side_effect=RuntimeError("boom")
+    ):
+        with pytest.raises(RuntimeError):
+            services.create_agreement(customer=make_customer(), data=create_data(), actor=user)
+
+    assert BillingAgreement.objects.count() == 0
+
+
+def test_resume_skips_months_that_fell_due_while_paused(user):
+    agreement = services.create_agreement(
+        customer=make_customer(), data=create_data(anchor_date=TODAY, total_cycles=4), actor=user
+    )
+    services.pause_agreement(agreement=agreement, expected_version=1, actor=user)
+
+    # Six weeks later: months starting 15 Jan and 15 Feb fell due while paused.
+    with mock.patch.object(services, "billing_today", return_value=datetime.date(2027, 3, 1)):
+        services.resume_agreement(agreement=agreement, expected_version=2, actor=user)
+
+    assert period_statuses(agreement) == ["SKIPPED", "SKIPPED", "SCHEDULED", "SCHEDULED"]
+    assert audit_rows(agreement)[-1].changes["periods_skipped"] == 2
+
+
+def test_cancel_cancels_unbilled_months_and_keeps_invoiced_ones(user):
+    agreement = services.create_agreement(
+        customer=make_customer(), data=create_data(total_cycles=3), actor=user
+    )
+    agreement.periods.filter(cycle_number=1).update(status="INVOICED")
+
+    services.cancel_agreement(agreement=agreement, expected_version=1, actor=user)
+
+    assert period_statuses(agreement) == ["INVOICED", "CANCELLED", "CANCELLED"]
+    assert audit_rows(agreement)[-1].changes["periods_cancelled"] == 2
+
+
+def test_cancelling_a_paused_agreement_skips_due_months_and_cancels_the_rest(user):
+    agreement = services.create_agreement(
+        customer=make_customer(), data=create_data(anchor_date=TODAY, total_cycles=3), actor=user
+    )
+    services.pause_agreement(agreement=agreement, expected_version=1, actor=user)
+
+    with mock.patch.object(services, "billing_today", return_value=datetime.date(2027, 2, 20)):
+        services.cancel_agreement(agreement=agreement, expected_version=2, actor=user)
+
+    assert period_statuses(agreement) == ["SKIPPED", "SKIPPED", "CANCELLED"]
+
+
+# --- change_agreement_amount ---------------------------------------------------------
+
+
+def _agreement_with_schedule(user, **overrides) -> BillingAgreement:
+    return services.create_agreement(
+        customer=make_customer(), data=create_data(**overrides), actor=user
+    )
+
+
+def test_change_amount_from_month_n(user):
+    agreement = _agreement_with_schedule(user, amount=Decimal("10.00"), total_cycles=4)
+
+    changed = services.change_agreement_amount(
+        agreement=agreement, from_cycle=3, amount=Decimal("12.50"), expected_version=1, actor=user
+    )
+
+    amounts = list(agreement.periods.order_by("cycle_number").values_list("amount", flat=True))
+    assert amounts == [Decimal("10.00"), Decimal("10.00"), Decimal("12.50"), Decimal("12.50")]
+    assert changed.amount == Decimal("12.50")  # the agreement holds the current price
+    assert changed.version == 2
+    assert audit_rows(agreement)[-1].changes == {
+        "amount": {"old": "10.00", "new": "12.50"},
+        "from_cycle": 3,
+        "periods_repriced": 2,
+    }
+
+
+@pytest.mark.parametrize("from_cycle", [0, 13])
+def test_change_amount_month_must_exist(user, from_cycle):
+    agreement = _agreement_with_schedule(user, total_cycles=12)
+
+    with pytest.raises(ValidationError) as exc_info:
+        services.change_agreement_amount(
+            agreement=agreement,
+            from_cycle=from_cycle,
+            amount=Decimal("1.00"),
+            expected_version=1,
+            actor=user,
+        )
+
+    assert "from_cycle" in exc_info.value.message_dict
+
+
+def test_change_amount_validates_the_amount(user):
+    agreement = _agreement_with_schedule(user)
+
+    with pytest.raises(ValidationError) as exc_info:
+        services.change_agreement_amount(
+            agreement=agreement,
+            from_cycle=1,
+            amount=Decimal("9.999"),
+            expected_version=1,
+            actor=user,
+        )
+
+    assert "amount" in exc_info.value.message_dict
+
+
+def test_change_amount_over_an_invoiced_month_changes_nothing(user):
+    agreement = _agreement_with_schedule(user, amount=Decimal("10.00"), total_cycles=3)
+    agreement.periods.filter(cycle_number=2).update(status="INVOICED")
+
+    with pytest.raises(PeriodsAlreadyInvoiced):
+        services.change_agreement_amount(
+            agreement=agreement,
+            from_cycle=1,
+            amount=Decimal("20.00"),
+            expected_version=1,
+            actor=user,
+        )
+
+    agreement.refresh_from_db()
+    assert agreement.amount == Decimal("10.00")
+    assert agreement.version == 1
+
+
+def test_change_amount_needs_the_current_version(user):
+    agreement = _agreement_with_schedule(user)
+    services.pause_agreement(agreement=agreement, expected_version=1, actor=user)
+
+    with pytest.raises(AgreementVersionConflict):
+        services.change_agreement_amount(
+            agreement=agreement,
+            from_cycle=1,
+            amount=Decimal("1.00"),
+            expected_version=1,
+            actor=user,
+        )
+
+
+def test_change_amount_on_closed_agreement_is_refused(user):
+    agreement = _agreement_with_schedule(user)
+    services.cancel_agreement(agreement=agreement, expected_version=1, actor=user)
+
+    with pytest.raises(AgreementClosed):
+        services.change_agreement_amount(
+            agreement=agreement,
+            from_cycle=1,
+            amount=Decimal("1.00"),
+            expected_version=2,
+            actor=user,
+        )

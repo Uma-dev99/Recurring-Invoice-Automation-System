@@ -5,6 +5,8 @@ import {
   type Agreement,
   type AgreementAction,
   type AgreementListParams,
+  type ChangeAmountInput,
+  changeAgreementAmount,
   createAgreement,
   getAgreement,
   listAgreements,
@@ -12,6 +14,7 @@ import {
   updateAgreement,
   VERSION_CONFLICT_CODE,
 } from "@/api/agreements";
+import { listAgreementPeriods } from "@/api/billing";
 import { ApiError } from "@/api/client";
 import { queryKeys } from "@/api/queryKeys";
 
@@ -35,17 +38,31 @@ export function isVersionConflict(error: unknown): boolean {
   return error instanceof ApiError && error.code === VERSION_CONFLICT_CODE;
 }
 
+export function useAgreementPeriods(agreementId: string) {
+  return useQuery({
+    queryKey: queryKeys.agreements.periods(agreementId),
+    queryFn: ({ signal }) => listAgreementPeriods(agreementId, signal),
+  });
+}
+
 /**
- * After a write: cache the fresh agreement and refresh every agreement list (the main
- * list and each customer's panel). After a version conflict: refetch the agreement, so
- * the page shows what the other person saved and the next attempt uses the new version.
+ * After a write: cache the fresh agreement, refresh every agreement list (the main list
+ * and each customer's panel) and this agreement's schedule, because every agreement
+ * action can change its periods (pause/resume/cancel skip or cancel months, a price
+ * change reprices them).
+ * After a version conflict: refetch the agreement AND its schedule (the schedule key
+ * lives under the agreement's key, so one prefix invalidation covers both), so the page
+ * shows what the other person saved and the next attempt uses the new version.
  */
 function useAgreementCache() {
   const queryClient = useQueryClient();
   return {
     store: (agreement: Agreement) => {
       queryClient.setQueryData(queryKeys.agreements.detail(agreement.id), agreement);
-      return queryClient.invalidateQueries({ queryKey: queryKeys.agreements.lists() });
+      return Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.agreements.lists() }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.agreements.periods(agreement.id) }),
+      ]);
     },
     refreshOnConflict: (id: string, error: unknown) => {
       if (isVersionConflict(error)) {
@@ -53,6 +70,15 @@ function useAgreementCache() {
       }
     },
   };
+}
+
+export function useChangeAgreementAmount(id: string) {
+  const { store, refreshOnConflict } = useAgreementCache();
+  return useMutation({
+    mutationFn: (input: ChangeAmountInput) => changeAgreementAmount(id, input),
+    onSuccess: store,
+    onError: (error) => refreshOnConflict(id, error),
+  });
 }
 
 export function useCreateAgreement() {

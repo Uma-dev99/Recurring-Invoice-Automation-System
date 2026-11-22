@@ -1,26 +1,36 @@
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "react-router";
 
-import { fetchHealth } from "@/api/health";
+import { fetchHealth, type WorkerStatus } from "@/api/health";
 import { queryKeys } from "@/api/queryKeys";
 import { KpiCard } from "@/components/ui/KpiCard";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Spinner } from "@/components/ui/Spinner";
-import { StatusBadge } from "@/components/ui/StatusBadge";
+import { StatusBadge, type StatusTone } from "@/components/ui/StatusBadge";
+import { useAttentionSummary } from "@/features/invoices/hooks";
 
 /**
  * Dashboard shell. KPI values stay empty ("—") until the backend computes them
  * (Phase 9): the frontend never invents or calculates financial figures itself.
  */
 export function DashboardPage() {
+  const { data: attention } = useAttentionSummary();
+
   return (
     <>
       <PageHeader title="Dashboard" description="Billing operations overview." />
 
       <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4" aria-label="Key metrics">
-        <KpiCard label="Active agreements" value={null} hint="Available after Phase 3" />
-        <KpiCard label="Invoices due this month" value={null} hint="Available after Phase 4" />
-        <KpiCard label="Accepted by Riverty" value={null} hint="Available after Phase 6" />
-        <KpiCard label="Needs attention" value={null} hint="Failed + unknown, Phase 8" />
+        <KpiCard label="Active agreements" value={null} hint="Available in Phase 9" />
+        <KpiCard label="Invoices due this month" value={null} hint="Available in Phase 9" />
+        <KpiCard label="Accepted by Riverty" value={null} hint="Available in Phase 9" />
+        <Link to="/jobs" className="block rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-500">
+          <KpiCard
+            label="Needs attention"
+            value={attention ? attention.total : null}
+            hint={attention && attention.total > 0 ? "Open Failed / pending jobs" : "Nothing to do"}
+          />
+        </Link>
       </section>
 
       <section className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
@@ -33,6 +43,9 @@ export function DashboardPage() {
     </>
   );
 }
+
+const WORKER_LABEL: Record<WorkerStatus, string> = { ok: "Running", stale: "Stopped", unknown: "Not seen yet" };
+const WORKER_TONE: Record<WorkerStatus, StatusTone> = { ok: "success", stale: "danger", unknown: "warning" };
 
 function SystemHealthPanel() {
   const { data, isPending, isError, dataUpdatedAt } = useQuery({
@@ -68,6 +81,22 @@ function SystemHealthPanel() {
                 </dd>
               </div>
             ))}
+            <div className="flex justify-between">
+              <dt className="text-slate-600" title="Background workers that send invoices, retry and reconcile">
+                Background jobs
+              </dt>
+              <dd>
+                <StatusBadge tone={WORKER_TONE[data.background.workers]}>
+                  {WORKER_LABEL[data.background.workers]}
+                </StatusBadge>
+              </dd>
+            </div>
+            {data.background.workers !== "ok" && (
+              <p className="text-xs text-amber-800">
+                No worker has reported in the last few minutes, so invoices are not being sent. Check that the
+                worker and beat containers are running.
+              </p>
+            )}
             <div className="flex justify-between border-t border-slate-100 pt-2 text-xs text-slate-400">
               <span>API v{data.version}</span>
               <span>Checked {new Date(dataUpdatedAt).toLocaleTimeString()}</span>

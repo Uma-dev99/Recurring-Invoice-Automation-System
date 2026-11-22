@@ -8,6 +8,9 @@ import { CustomerDetailPage } from "@/pages/customers/CustomerDetailPage";
 import { CustomerNewPage } from "@/pages/customers/CustomerNewPage";
 import { CustomersPage } from "@/pages/customers/CustomersPage";
 import { DashboardPage } from "@/pages/DashboardPage";
+import { InvoiceDetailPage } from "@/pages/invoices/InvoiceDetailPage";
+import { InvoicesPage } from "@/pages/invoices/InvoicesPage";
+import { JobsPage } from "@/pages/jobs/JobsPage";
 import { LoginPage } from "@/pages/LoginPage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
 import { PlaceholderPage } from "@/pages/PlaceholderPage";
@@ -33,6 +36,12 @@ const agreementRoutes = [
   { path: "agreements/:agreementId", element: <AgreementDetailPage /> },
 ];
 
+const invoiceRoutes = [
+  { path: "invoices", element: <InvoicesPage /> },
+  { path: "invoices/:invoiceId", element: <InvoiceDetailPage /> },
+  { path: "jobs", element: <JobsPage /> },
+];
+
 export const router = createBrowserRouter([
   { path: "/login", element: <LoginPage /> },
   {
@@ -45,6 +54,7 @@ export const router = createBrowserRouter([
           { index: true, element: <DashboardPage /> },
           ...customerRoutes,
           ...agreementRoutes,
+          ...invoiceRoutes,
           ...placeholderRoutes,
         ],
       },

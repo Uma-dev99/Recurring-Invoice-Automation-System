@@ -6,9 +6,12 @@
  */
 import type { AgreementListParams } from "@/api/agreements";
 import type { CustomerListParams } from "@/api/customers";
+import type { InvoiceListParams } from "@/api/invoices";
 
 const CUSTOMERS = ["customers"] as const;
 const AGREEMENTS = ["agreements"] as const;
+const INVOICES = ["invoices"] as const;
+const ATTENTION = ["attention"] as const;
 
 export const queryKeys = {
   auth: {
@@ -27,5 +30,19 @@ export const queryKeys = {
     lists: () => [...AGREEMENTS, "list"] as const,
     list: (params: AgreementListParams) => [...AGREEMENTS, "list", params] as const,
     detail: (id: string) => [...AGREEMENTS, "detail", id] as const,
+    // Lives under the agreement's key, so anything that refreshes "this agreement"
+    // can refresh its schedule too.
+    periods: (id: string) => [...AGREEMENTS, "detail", id, "periods"] as const,
+  },
+  invoices: {
+    all: INVOICES,
+    list: (params: InvoiceListParams) => [...INVOICES, "list", params] as const,
+    detail: (id: string) => [...INVOICES, "detail", id] as const,
+  },
+  attention: {
+    all: ATTENTION,
+    summary: () => [...ATTENTION, "summary"] as const,
+    missedPeriods: (page: number) => [...ATTENTION, "missed-periods", page] as const,
+    failedEvents: (page: number) => [...ATTENTION, "failed-events", page] as const,
   },
 };

@@ -42,6 +42,10 @@ pip install -r requirements/dev.txt
 Copy-Item .env.example .env        # then edit POSTGRES_PASSWORD and DJANGO_SECRET_KEY
 python manage.py migrate
 python manage.py createsuperuser   # this is your dashboard login
+python manage.py seed_demo_data    # optional: example customers + agreements (DEBUG only, safe to re-run)
+python manage.py backfill_billing_periods  # once, for agreements created before billing periods existed
+python manage.py run_billing_cycle  # submit due invoices, retry, reconcile (scheduled automatically from Phase 7)
+python manage.py run_billing_cycle --today 2027-03-01  # DEBUG only: pretend it is that day
 python manage.py runserver
 ```
 
@@ -77,6 +81,23 @@ npm run build             # type-check + production build
 ```bash
 docker compose up --build
 docker compose exec backend python manage.py createsuperuser
+docker compose exec backend python manage.py seed_demo_data   # optional example data
 ```
 
-Postgres is published on host port 5433 to avoid clashing with a local install.
+Postgres is published on host port 5433 and Redis on 6380, to avoid clashing with local installs.
+
+### Background jobs (Celery)
+
+`docker compose up` also starts Redis, a Celery **worker** and Celery **beat** (the clock).
+Beat runs the billing jobs automatically: due months are picked up hourly, the outbox and
+due retries every minute, crashed submissions every 5 minutes and unknown outcomes every
+15 minutes (see `CELERY_BEAT_SCHEDULE` in `backend/config/settings/base.py`). The dashboard's
+**System health** panel shows whether the workers are running.
+
+```bash
+docker compose logs -f worker beat     # watch the jobs run
+docker compose restart worker beat     # REQUIRED after editing backend Python code:
+                                       # unlike runserver, workers don't reload by themselves
+```
+
+`run_billing_cycle` still works for running everything once by hand (or with `--today`).

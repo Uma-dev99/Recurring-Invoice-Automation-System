@@ -1,8 +1,25 @@
-# Local development stack: PostgreSQL + Django API + Vite dev server.
-# Redis, the Celery worker and Celery Beat are added in Phase 7.
+# Local development stack: PostgreSQL + Redis + Django API + Celery worker/beat + Vite.
 #
 #   docker compose up --build
 #   docker compose exec backend python manage.py createsuperuser
+#
+# The worker and beat do NOT reload when Python code changes (runserver does).
+# After editing backend code:  docker compose restart worker beat
+
+# Settings shared by every container that runs the Django codebase (backend, worker,
+# beat). A YAML anchor keeps them in one place instead of three copies.
+x-backend-env: &backend-env
+  DJANGO_SETTINGS_MODULE: config.settings.local
+  DJANGO_SECRET_KEY: docker-dev-only-insecure-secret-key
+  DJANGO_DEBUG: "true"
+  DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1,backend
+  DJANGO_CSRF_TRUSTED_ORIGINS: http://localhost:5173
+  POSTGRES_DB: invoice_automation
+  POSTGRES_USER: invoice_app
+  POSTGRES_PASSWORD: invoice_app_dev_password
+  POSTGRES_HOST: db # service name = hostname inside the Compose network
+  POSTGRES_PORT: "5432"
+  REDIS_URL: redis://redis:6379
 
 services:
   db:
@@ -21,20 +38,22 @@ services:
       timeout: 3s
       retries: 10
 
+  # Message broker for Celery + Django's shared cache. No volume on purpose: Redis
+  # holds no state we need to keep (job state lives in PostgreSQL).
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6380:6379" # 6380 on the host, so it never clashes with a locally installed Redis
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
   backend:
     build: ./backend
     command: sh -c "python manage.py migrate && python manage.py runserver 0.0.0.0:8000"
-    environment:
-      DJANGO_SETTINGS_MODULE: config.settings.local
-      DJANGO_SECRET_KEY: docker-dev-only-insecure-secret-key
-      DJANGO_DEBUG: "true"
-      DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1,backend
-      DJANGO_CSRF_TRUSTED_ORIGINS: http://localhost:5173
-      POSTGRES_DB: invoice_automation
-      POSTGRES_USER: invoice_app
-      POSTGRES_PASSWORD: invoice_app_dev_password
-      POSTGRES_HOST: db # service name = hostname inside the Compose network
-      POSTGRES_PORT: "5432"
+    environment: *backend-env
     ports:
       - "8000:8000"
     volumes:
@@ -42,11 +61,37 @@ services:
     depends_on:
       db:
         condition: service_healthy # wait until Postgres accepts connections
+      redis:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health/')"]
       interval: 15s
       timeout: 5s
       retries: 5
+
+  # Runs background tasks: submitting invoices, retries, reconciliation.
+  worker:
+    build: ./backend
+    command: celery -A config worker --loglevel=info --concurrency=2
+    environment: *backend-env
+    volumes:
+      - ./backend:/app
+    depends_on:
+      backend:
+        condition: service_healthy # migrations have run
+
+  # The clock: sends the scheduled tasks in CELERY_BEAT_SCHEDULE. Run exactly ONE beat,
+  # otherwise every scheduled task would be sent twice (harmless, but wasteful).
+  beat:
+    build: ./backend
+    # The schedule state file goes to /tmp, not into the mounted source folder.
+    command: celery -A config beat --loglevel=info --schedule /tmp/celerybeat-schedule
+    environment: *backend-env
+    volumes:
+      - ./backend:/app
+    depends_on:
+      backend:
+        condition: service_healthy
 
   frontend:
     image: node:20-alpine
@@ -54,6 +99,8 @@ services:
     command: sh -c "npm ci && npm run dev -- --host 0.0.0.0"
     environment:
       VITE_API_PROXY_TARGET: http://backend:8000
+      # File-change events don't cross the Windows -> Docker bind mount; poll instead.
+      VITE_USE_POLLING: "true"
     ports:
       - "5173:5173"
     volumes:

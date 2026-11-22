@@ -10,6 +10,8 @@ service, format with AgreementSerializer, return.
   POST  /api/v1/agreements/<id>/pause/       body: {"version": n}
   POST  /api/v1/agreements/<id>/resume/      body: {"version": n}
   POST  /api/v1/agreements/<id>/cancel/      body: {"version": n, "reason": "..."}
+  POST  /api/v1/agreements/<id>/change-amount/  body: {"version", "from_cycle", "amount"}
+  (The schedule, GET .../<id>/periods/, is served by apps/billing/views.py.)
 No PUT and no DELETE: agreements are financial history.
 """
 
@@ -25,6 +27,7 @@ from apps.agreements.models import BillingAgreement
 from apps.agreements.selectors import list_agreements
 from apps.agreements.serializers import (
     AgreementCancelSerializer,
+    AgreementChangeAmountSerializer,
     AgreementCreateSerializer,
     AgreementListQuerySerializer,
     AgreementSerializer,
@@ -132,4 +135,25 @@ class AgreementCancelView(_AgreementActionView):
             expected_version=data["version"],
             actor=actor,
             reason=data["reason"],
+        )
+
+
+@extend_schema(
+    request=AgreementChangeAmountSerializer,
+    responses={200: AgreementSerializer, 409: CONFLICT_RESPONSE},
+    description=(
+        "New monthly price from month `from_cycle` onwards. Earlier months keep their "
+        "price. 422 `periods_already_invoiced` if a month in the range is (being) invoiced."
+    ),
+)
+class AgreementChangeAmountView(_AgreementActionView):
+    input_serializer_class = AgreementChangeAmountSerializer
+
+    def perform(self, agreement, data, actor):
+        return services.change_agreement_amount(
+            agreement=agreement,
+            from_cycle=data["from_cycle"],
+            amount=data["amount"],
+            expected_version=data["version"],
+            actor=actor,
         )
