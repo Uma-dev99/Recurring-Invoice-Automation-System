@@ -59,3 +59,58 @@ class AuditLog(UUIDModel):
 
     def __str__(self) -> str:
         return f"{self.action} {self.entity_type}:{self.entity_id}"
+
+
+class OutboxEvent(UUIDModel):
+    """A unit of background work, stored in the SAME transaction as the change it follows.
+
+    Why: if a service committed its change and then sent a message to a queue as a
+    separate step, a crash in between would lose the work for ever (or, sending before
+    committing, a worker could act on a change that then rolls back). Writing the event
+    into the database together with the change makes "change happened" and "work is
+    queued" one atomic fact. A dispatcher (operations/outbox.py) later claims pending
+    events and runs their handler, retrying until it succeeds.
+
+    PostgreSQL is the source of truth for pending work. From Phase 7 Redis only carries
+    wake-up messages; if one is lost, the periodic sweep still finds the PENDING row.
+    """
+
+    class Status(models.TextChoices):
+        PENDING = "PENDING", "Pending"
+        PROCESSING = "PROCESSING", "Processing"
+        DONE = "DONE", "Done"
+        FAILED = "FAILED", "Failed"  # gave up after too many attempts; needs a human
+
+    event_type = models.CharField(max_length=100)  # e.g. "invoice.submit"
+    # IDs only, never copies of data: the handler re-reads current state, so a stale or
+    # duplicated event can't carry outdated amounts.
+    payload = models.JSONField(default=dict)
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.PENDING)
+    # Not before this moment (used for retry backoff and scheduled retries).
+    available_at = models.DateTimeField()
+    # While PROCESSING: if this passes, the dispatcher that claimed it is presumed dead.
+    locked_until = models.DateTimeField(null=True, blank=True)
+    attempts = models.PositiveSmallIntegerField(default=0)
+    last_error = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    processed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["available_at"]
+        indexes = [
+            # The dispatcher's question: "which PENDING events are available now?"
+            models.Index(
+                fields=["available_at"],
+                condition=models.Q(status="PENDING"),
+                name="outbox_pending_idx",
+            ),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(status__in=["PENDING", "PROCESSING", "DONE", "FAILED"]),
+                name="outbox_status_valid",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.event_type} [{self.status}]"

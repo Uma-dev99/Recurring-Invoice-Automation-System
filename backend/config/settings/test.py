@@ -25,3 +25,7 @@ REST_FRAMEWORK = {
 }
 
 CACHES = {"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}}
+
+# Tests never need a running Redis: messages go to an in-memory broker that nothing
+# consumes. Tests call task functions directly, or the services they wrap.
+CELERY_BROKER_URL = "memory://"

@@ -2,6 +2,7 @@ from django.urls import path
 
 from apps.agreements.views import (
     AgreementCancelView,
+    AgreementChangeAmountView,
     AgreementDetailView,
     AgreementListCreateView,
     AgreementPauseView,
@@ -14,4 +15,9 @@ urlpatterns = [
     path("<uuid:pk>/pause/", AgreementPauseView.as_view(), name="agreement-pause"),
     path("<uuid:pk>/resume/", AgreementResumeView.as_view(), name="agreement-resume"),
     path("<uuid:pk>/cancel/", AgreementCancelView.as_view(), name="agreement-cancel"),
+    path(
+        "<uuid:pk>/change-amount/",
+        AgreementChangeAmountView.as_view(),
+        name="agreement-change-amount",
+    ),
 ]

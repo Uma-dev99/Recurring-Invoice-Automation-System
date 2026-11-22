@@ -6,7 +6,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.core.health import run_health_checks
+from apps.core.health import run_health_checks, worker_status
 
 
 class HealthCheckView(APIView):
@@ -29,10 +29,14 @@ class HealthCheckView(APIView):
                     "status": serializers.ChoiceField(choices=["ok", "unavailable"]),
                     "version": serializers.CharField(),
                     "checks": serializers.DictField(child=serializers.CharField()),
+                    "background": serializers.DictField(child=serializers.CharField()),
                 },
             )
         },
-        description="Readiness check. Returns 503 if any dependency is down.",
+        description=(
+            "Readiness check. Returns 503 if the database or cache is down. "
+            "`background.workers` (ok/stale/unknown) is informational and never causes 503."
+        ),
     )
     def get(self, request: Request) -> Response:
         results = run_health_checks()
@@ -41,6 +45,7 @@ class HealthCheckView(APIView):
             "status": "ok" if healthy else "unavailable",
             "version": settings.APP_VERSION,
             "checks": {name: "ok" if ok else "unavailable" for name, ok in results.items()},
+            "background": {"workers": worker_status()},
         }
         return Response(
             body,

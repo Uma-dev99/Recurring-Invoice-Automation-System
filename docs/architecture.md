@@ -89,9 +89,13 @@ backend/
     customers/            Customer: who we bill                                     [Ph.2]
     agreements/           BillingAgreement + lifecycle (active/paused/cancelled)   [Ph.3]
     billing/              BillingPeriod generation, date maths, snapshots          [Ph.4]
-    invoicing/            InvoiceSubmission state machine, merchant references     [Ph.5]
+    invoicing/            InvoiceSubmission + ProcessingAttempt, state machine,    [Ph.5]
+                          gateway interface + fake, billing-cycle command
     integrations/riverty/ Riverty adapter (client, mapping, errors)                [Ph.6]
-    operations/           OutboxEvent, ProcessingAttempt, AuditLog, WebhookEvent   [Ph.5-9]
+    operations/           OutboxEvent (+ dispatcher), AuditLog, WebhookEvent       [Ph.2-9]
+                          (ProcessingAttempt moved to invoicing in Phase 5: it has a
+                          FK to InvoiceSubmission, and operations must not depend on
+                          invoicing models; operations stays at the bottom of the graph)
     dashboard/            read-only KPI selectors and endpoints                    [Ph.9]
 ```
 

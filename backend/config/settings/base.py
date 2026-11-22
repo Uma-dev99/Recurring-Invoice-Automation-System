@@ -6,6 +6,7 @@ override only what differs. Secrets and per-machine values come from the environ
 
 from pathlib import Path
 
+from celery.schedules import crontab
 from dotenv import load_dotenv
 
 from config.env import env_bool, env_int, env_list, env_str
@@ -42,6 +43,8 @@ LOCAL_APPS = [
     "apps.operations",
     "apps.customers",
     "apps.agreements",
+    "apps.billing",
+    "apps.invoicing",
 ]
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
 
@@ -174,6 +177,8 @@ SPECTACULAR_SETTINGS = {
     "ENUM_NAME_OVERRIDES": {
         "CustomerStatusEnum": "apps.customers.models.Customer.Status",
         "AgreementStatusEnum": "apps.agreements.models.BillingAgreement.Status",
+        "PeriodStatusEnum": "apps.billing.models.BillingPeriod.Status",
+        "SubmissionStatusEnum": "apps.invoicing.models.InvoiceSubmission.Status",
     },
 }
 
@@ -199,3 +204,88 @@ LOGGING = {
 }
 
 APP_VERSION = env_str("APP_VERSION", default="0.1.0")
+
+# ---------------------------------------------------------------------------
+# Invoicing
+# ---------------------------------------------------------------------------
+# Which class talks to Riverty. The fake is used until the real adapter exists
+# (Phase 6); switching is this one setting.
+INVOICE_GATEWAY = env_str("INVOICE_GATEWAY", default="apps.invoicing.gateway.FakeGateway")
+# Temporary failures are retried (with growing waits) this many times in total,
+# then the submission is marked NEEDS_ATTENTION.
+INVOICE_MAX_ATTEMPTS = env_int("INVOICE_MAX_ATTEMPTS", default=5)
+
+# ---------------------------------------------------------------------------
+# Redis: shared cache + Celery's message broker (Phase 7)
+# ---------------------------------------------------------------------------
+# Docker Compose sets redis://redis:6379; running Django directly on the host, start
+# Redis with `docker compose up -d redis` (published on host port 6380).
+REDIS_URL = env_str("REDIS_URL", default="redis://localhost:6380")
+
+# One cache shared by every web process and worker. Fixes the Phase 1 limitation where
+# the login rate limit was counted per process (each process had its own memory cache).
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.redis.RedisCache",
+        "LOCATION": f"{REDIS_URL}/1",
+    }
+}
+
+# ---------------------------------------------------------------------------
+# Celery: background jobs (Phase 7)
+# ---------------------------------------------------------------------------
+# PostgreSQL holds the job STATE (outbox rows, submission statuses). Redis only carries
+# wake-up messages; if one is lost, the scheduled sweeps below still find the work.
+CELERY_BROKER_URL = f"{REDIS_URL}/0"
+CELERY_TASK_IGNORE_RESULT = True  # tasks record their outcome in our own tables
+# Acknowledge a message only after the task FINISHED: if a worker dies mid-task, the
+# message is redelivered. Safe because every task is idempotent.
+CELERY_TASK_ACKS_LATE = True
+CELERY_TASK_REJECT_ON_WORKER_LOST = True
+# Take one message at a time: a slow Riverty call can't hold a queue of waiting work.
+CELERY_WORKER_PREFETCH_MULTIPLIER = 1
+CELERY_TASK_TIME_LIMIT = 5 * 60  # hard kill after 5 minutes
+CELERY_TASK_SOFT_TIME_LIMIT = 4 * 60
+CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
+# "At 06:00" in the beat schedule means 06:00 in the billing time zone, not UTC.
+CELERY_TIMEZONE = BILLING_TIME_ZONE
+
+# What runs when. Every job is idempotent, so running one twice (or overlapping runs)
+# is harmless; `expires` drops a queued run that is older than the next one anyway.
+CELERY_BEAT_SCHEDULE = {
+    # Find due billing months and create their submissions. Hourly rather than once a
+    # day: a missed run (deploy, outage) is caught up within the hour.
+    "enqueue-due-periods": {
+        "task": "invoicing.enqueue_due_periods",
+        "schedule": crontab(minute=5),
+        "options": {"expires": 55 * 60},
+    },
+    # Safety net for the outbox: delivers events whose fast-path wake-up was lost, and
+    # retries scheduled for "now".
+    "dispatch-outbox": {
+        "task": "operations.dispatch_outbox",
+        "schedule": 60.0,
+        "options": {"expires": 50},
+    },
+    "sweep-due-retries": {
+        "task": "invoicing.sweep_due_retries",
+        "schedule": 60.0,
+        "options": {"expires": 50},
+    },
+    "recover-expired-leases": {
+        "task": "invoicing.recover_expired_leases",
+        "schedule": 5 * 60.0,
+        "options": {"expires": 4 * 60},
+    },
+    "reconcile-unknown": {
+        "task": "invoicing.reconcile_unknown",
+        "schedule": 15 * 60.0,
+        "options": {"expires": 14 * 60},
+    },
+    # Lets the health check tell whether workers are alive (see apps/core/health.py).
+    "worker-heartbeat": {
+        "task": "core.heartbeat",
+        "schedule": 60.0,
+        "options": {"expires": 50},
+    },
+}

@@ -9,10 +9,19 @@ Same rules as apps/customers/services.py (keyword-only arguments, full_clean(), 
     Every successful write increments the version.
   * Lifecycle rules live in lifecycle.py; services only apply its answer.
 
-Phase 3 scope: amount, start date and number of cycles are fixed once created. Changing
-the amount "from month N" needs the billing periods of Phase 4. Until then, a wrong
-amount or date is fixed by cancelling and creating a new agreement.
+Billing periods (Phase 4) change in the SAME transaction as the agreement action that
+causes them, and the one audit row of that action records what happened to them:
+  create  -> all periods generated
+  resume  -> months that fell due while paused are SKIPPED
+  cancel  -> unbilled months CANCELLED (months due while paused: SKIPPED)
+  change_agreement_amount -> unbilled months from month N get the new price
+
+Start date and number of months stay fixed once created; a wrong one is fixed by
+cancelling and creating a new agreement. `amount` always holds the CURRENT price, i.e.
+the price of the last month; earlier months keep the price they were created with.
 """
+
+from decimal import Decimal
 
 from django.contrib.auth.base_user import AbstractBaseUser
 from django.core.exceptions import ValidationError
@@ -22,6 +31,10 @@ from django.utils import timezone
 from apps.agreements.exceptions import AgreementClosed, AgreementVersionConflict, CustomerNotActive
 from apps.agreements.lifecycle import PAST_TENSE, TERMINAL_STATUSES, Action, next_status
 from apps.agreements.models import BillingAgreement
+
+# Agreement actions drive their periods. The billing app depends on agreements for its
+# model, so this is a deliberate two-way link at the service level (models don't cycle).
+from apps.billing import services as billing_services
 from apps.core.dates import billing_today
 from apps.customers.models import Customer
 from apps.operations.services import record_audit_event
@@ -76,6 +89,8 @@ def create_agreement(
 
         agreement.full_clean()
         agreement.save(force_insert=True)
+        # Same transaction: the agreement exists with its full schedule, or not at all.
+        periods = billing_services.generate_periods(agreement=agreement)
         record_audit_event(
             action="agreement.created",
             instance=agreement,
@@ -87,9 +102,56 @@ def create_agreement(
                 "currency": agreement.currency,
                 "anchor_date": agreement.anchor_date,
                 "total_cycles": agreement.total_cycles,
+                "periods_generated": len(periods),
             },
         )
     return agreement
+
+
+def change_agreement_amount(
+    *,
+    agreement: BillingAgreement,
+    from_cycle: int,
+    amount: Decimal,
+    expected_version: int,
+    actor: AbstractBaseUser | None,
+) -> BillingAgreement:
+    """New monthly price from month `from_cycle` onwards.
+
+    Months before `from_cycle` keep their price. Refused if a month in the range is
+    already being invoiced or invoiced (billing.PeriodsAlreadyInvoiced).
+    """
+    with transaction.atomic():
+        locked = _lock(agreement, expected_version)
+        if locked.status in TERMINAL_STATUSES:
+            raise AgreementClosed(
+                f"A {locked.get_status_display().lower()} agreement can no longer be changed."
+            )
+        if not 1 <= from_cycle <= locked.total_cycles:
+            raise ValidationError(
+                {"from_cycle": [f"Choose a month between 1 and {locked.total_cycles}."]}
+            )
+
+        old_amount = locked.amount
+        locked.amount = amount
+        locked.full_clean()  # amount > 0, at most 2 decimals, fits NUMERIC(12, 2)
+
+        repriced = billing_services.reprice_periods(
+            agreement=locked, from_cycle=from_cycle, amount=locked.amount
+        )
+        locked.version += 1
+        locked.save(update_fields=["amount", "version", "updated_at"])
+        record_audit_event(
+            action="agreement.amount_changed",
+            instance=locked,
+            actor=actor,
+            changes={
+                "amount": {"old": old_amount, "new": locked.amount},
+                "from_cycle": from_cycle,
+                "periods_repriced": repriced,
+            },
+        )
+    return locked
 
 
 def update_agreement(
@@ -171,10 +233,12 @@ def _transition(
             locked.cancelled_at = timezone.now()
             update_fields.append("cancelled_at")
 
+        changes: dict = {"status": {"old": old_status, "new": locked.status}}
+        changes.update(_apply_period_effects(locked, action, old_status))
+
         locked.version += 1
         locked.save(update_fields=update_fields)
 
-        changes: dict = {"status": {"old": old_status, "new": locked.status}}
         if reason:
             changes["reason"] = reason
         record_audit_event(
@@ -184,3 +248,17 @@ def _transition(
             changes=changes,
         )
     return locked
+
+
+def _apply_period_effects(agreement: BillingAgreement, action: Action, old_status: str) -> dict:
+    """What a lifecycle action does to the billing periods; returns counts for the audit."""
+    effects: dict = {}
+    was_paused = old_status == BillingAgreement.Status.PAUSED
+    if was_paused and action in (Action.RESUME, Action.CANCEL):
+        # Months that fell due while billing was paused are never billed.
+        effects["periods_skipped"] = billing_services.skip_periods_due_while_paused(
+            agreement=agreement, today=billing_today()
+        )
+    if action is Action.CANCEL:
+        effects["periods_cancelled"] = billing_services.cancel_open_periods(agreement=agreement)
+    return effects

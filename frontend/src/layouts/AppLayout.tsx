@@ -2,11 +2,15 @@ import { useState } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router";
 
 import { useCurrentUser, useLogout } from "@/features/auth/hooks";
+import { useAttentionSummary } from "@/features/invoices/hooks";
 import { NAV_ITEMS } from "@/routes/navigation";
 import { cn } from "@/utils/cn";
 
 export function AppLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  // Polls every 30 s (see useAttentionSummary), so the badge appears without a reload.
+  const { data: attention } = useAttentionSummary();
+  const needsAction = attention?.total ?? 0;
 
   return (
     <div className="flex h-full">
@@ -29,12 +33,20 @@ export function AppLayout() {
               onClick={() => setSidebarOpen(false)}
               className={({ isActive }) =>
                 cn(
-                  "block rounded-md px-3 py-2 text-sm font-medium",
+                  "flex items-center justify-between rounded-md px-3 py-2 text-sm font-medium",
                   isActive ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-100 hover:text-slate-900",
                 )
               }
             >
               {item.label}
+              {item.to === "/jobs" && needsAction > 0 && (
+                <span
+                  className="rounded-full bg-red-600 px-1.5 text-xs font-semibold text-white tabular-nums"
+                  aria-label={`${needsAction} items need attention`}
+                >
+                  {needsAction}
+                </span>
+              )}
             </NavLink>
           ))}
         </nav>

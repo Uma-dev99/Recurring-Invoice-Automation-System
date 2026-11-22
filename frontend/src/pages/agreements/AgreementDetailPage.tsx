@@ -1,5 +1,5 @@
 import { zodResolver } from "@hookform/resolvers/zod";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { Link, useParams } from "react-router";
 
@@ -9,7 +9,17 @@ import { ErrorState } from "@/components/ui/ErrorState";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Spinner } from "@/components/ui/Spinner";
 import { StatusBadge } from "@/components/ui/StatusBadge";
-import { isVersionConflict, useAgreement, useAgreementAction, useUpdateAgreement } from "@/features/agreements/hooks";
+import { ChangeAmountForm } from "@/features/agreements/ChangeAmountForm";
+import {
+  isVersionConflict,
+  useAgreement,
+  useAgreementAction,
+  useAgreementPeriods,
+  useChangeAgreementAmount,
+  useUpdateAgreement,
+} from "@/features/agreements/hooks";
+import { ScheduleTable } from "@/features/billing/ScheduleTable";
+import { useInvoices } from "@/features/invoices/hooks";
 import { AGREEMENT_STATUS_LABEL, AGREEMENT_STATUS_TONE, formatCycles } from "@/features/agreements/labels";
 import { type AgreementEditValues, agreementEditSchema } from "@/schemas/agreement";
 import { formatDay, formatMoney, formatTimestamp } from "@/utils/format";
@@ -39,14 +49,17 @@ function AgreementDetail({ agreement }: { agreement: Agreement }) {
   const [editing, setEditing] = useState(false);
   const update = useUpdateAgreement(agreement.id);
   const action = useAgreementAction(agreement.id);
+  const changeAmount = useChangeAgreementAmount(agreement.id);
   const closed = agreement.status === "CANCELLED" || agreement.status === "COMPLETED";
 
-  // Either write may have lost a race with someone else's change. The hooks already
-  // refetched the agreement, so the page shows the latest data; explain what happened.
-  const conflict = isVersionConflict(update.error) || isVersionConflict(action.error);
+  // Any write may have lost a race with someone else's change. The hooks already
+  // refetched the agreement and its schedule; explain what happened.
+  const conflict =
+    isVersionConflict(update.error) || isVersionConflict(action.error) || isVersionConflict(changeAmount.error);
   const dismissConflict = () => {
     update.reset();
     action.reset();
+    changeAmount.reset();
   };
 
   return (
@@ -100,12 +113,93 @@ function AgreementDetail({ agreement }: { agreement: Agreement }) {
         </div>
 
         {!closed && !editing && <LifecycleActions agreement={agreement} mutation={action} />}
-
-        <p className="text-xs text-slate-500">
-          The monthly billing schedule (one period per month) is added in Phase 4.
-        </p>
       </div>
+
+      <ScheduleSection agreement={agreement} closed={closed} mutation={changeAmount} />
     </>
+  );
+}
+
+/** The month-by-month schedule, with the "change price from month N" form. */
+function ScheduleSection({
+  agreement,
+  closed,
+  mutation,
+}: {
+  agreement: Agreement;
+  closed: boolean;
+  mutation: ReturnType<typeof useChangeAgreementAmount>;
+}) {
+  const { data: periods, isPending, isError, refetch } = useAgreementPeriods(agreement.id);
+  // The invoice of each month. 100 is the API's page-size cap; an agreement longer than
+  // 100 months shows invoices for its first 100 here (the Invoices page has them all).
+  const { data: invoices } = useInvoices({ agreement: agreement.id, page_size: 100, ordering: "period_start" });
+  const invoicesByPeriod = useMemo(
+    () => new Map((invoices?.results ?? []).map((invoice) => [invoice.period.id, invoice])),
+    [invoices],
+  );
+  const [changing, setChanging] = useState(false);
+  const [previewFrom, setPreviewFrom] = useState<number | undefined>();
+
+  return (
+    <section className="mt-6 max-w-4xl rounded-lg border border-slate-200 bg-white" aria-labelledby="schedule-title">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-4 py-3">
+        <div>
+          <h2 id="schedule-title" className="text-sm font-semibold text-slate-900">
+            Schedule
+          </h2>
+          <p className="text-xs text-slate-500">
+            Each month is invoiced from its first day and must be invoiced by its last day.
+          </p>
+        </div>
+        {!closed && !changing && periods && periods.length > 0 && (
+          <button
+            type="button"
+            onClick={() => {
+              mutation.reset();
+              setChanging(true);
+            }}
+            className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+          >
+            Change price…
+          </button>
+        )}
+      </div>
+
+      {isPending ? (
+        <div className="p-4">
+          <Spinner label="Loading schedule" />
+        </div>
+      ) : isError ? (
+        <div className="p-4">
+          <ErrorState message="Could not load the schedule." onRetry={() => refetch()} />
+        </div>
+      ) : periods.length === 0 ? (
+        <p className="px-4 py-6 text-center text-sm text-slate-500">
+          No schedule yet. Run <code className="font-mono">manage.py backfill_billing_periods</code> for agreements
+          created before billing periods existed.
+        </p>
+      ) : (
+        <>
+          {changing && (
+            <div className="border-b border-slate-200 p-4">
+              <ChangeAmountForm
+                agreement={agreement}
+                periods={periods}
+                mutation={mutation}
+                onPreview={setPreviewFrom}
+                onDone={() => setChanging(false)}
+              />
+            </div>
+          )}
+          <ScheduleTable
+            periods={periods}
+            highlightFrom={changing ? previewFrom : undefined}
+            invoicesByPeriod={invoicesByPeriod}
+          />
+        </>
+      )}
+    </section>
   );
 }
 
@@ -123,7 +217,7 @@ function AgreementDetails({ agreement }: { agreement: Agreement }) {
       </Link>,
     ],
     [
-      "Amount",
+      "Current price",
       <span className="tabular-nums">
         {formatMoney(agreement.amount, agreement.currency)} per month{" "}
         <span className="text-slate-500">(VAT included)</span>

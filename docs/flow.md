@@ -494,10 +494,9 @@ Each row: the decision, where it lives, why, and what was rejected.
 Found while writing this document. None block Phase 1, but each should be resolved
 before production.
 
-1. **Throttle counters are per-process.** `ScopedRateThrottle` stores counts in Django's
-   cache. No `CACHES` is configured outside tests, so it falls back to local memory: with
-   4 gunicorn workers, a client gets ~4× the limit, and counters reset on restart.
-   *Fix:* point `CACHES` at Redis when Redis arrives in Phase 7.
+1. ~~**Throttle counters are per-process.**~~ **Resolved in Phase 7:** `CACHES` now points
+   at Redis, so every web process shares one login-attempt counter. (Before, each process
+   kept its own in-memory count, so 4 processes allowed ~4× the limit.)
 2. **Throttling is by client IP.** Behind a reverse proxy every request may appear to come
    from the proxy's IP, throttling everyone together. *Fix (Phase 10):* configure
    `NUM_PROXIES` in `REST_FRAMEWORK` to match the deployment.

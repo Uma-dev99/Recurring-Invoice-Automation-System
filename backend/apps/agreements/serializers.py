@@ -86,6 +86,17 @@ class AgreementCancelSerializer(AgreementVersionSerializer):
     reason = serializers.CharField(max_length=500, required=False, allow_blank=True, default="")
 
 
+class AgreementChangeAmountSerializer(AgreementVersionSerializer):
+    """Body of change-amount: the new monthly price from month `from_cycle` onwards.
+
+    Whether `from_cycle` exists for THIS agreement (<= its total_cycles) is checked by
+    the service, which knows the agreement; here only the shape is checked.
+    """
+
+    from_cycle = serializers.IntegerField(min_value=1, max_value=MAX_CYCLES)
+    amount = serializers.DecimalField(max_digits=12, decimal_places=2, min_value=Decimal("0.01"))
+
+
 class AgreementListQuerySerializer(serializers.Serializer):
     """Validates ?customer=&status=&search=&ordering= before they reach the query."""
 

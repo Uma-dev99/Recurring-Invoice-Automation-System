@@ -78,3 +78,14 @@ export function updateAgreement(id: string, input: { version: number; descriptio
 export function runAgreementAction(id: string, { action, ...body }: AgreementAction) {
   return apiRequest<Agreement>(`/agreements/${id}/${action}/`, { method: "POST", body });
 }
+
+export interface ChangeAmountInput {
+  version: number;
+  /** First month that gets the new price; earlier months keep theirs. */
+  from_cycle: number;
+  amount: string;
+}
+
+export function changeAgreementAmount(id: string, input: ChangeAmountInput) {
+  return apiRequest<Agreement>(`/agreements/${id}/change-amount/`, { method: "POST", body: input });
+}
