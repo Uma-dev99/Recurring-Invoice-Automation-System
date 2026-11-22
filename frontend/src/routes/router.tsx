@@ -44,7 +44,7 @@ const invoiceRoutes = [
   { path: "audit-logs", element: <AuditLogsPage /> },
 ];
 
-export const router = createBrowserRouter([
+const routes = [
   { path: "/login", element: <LoginPage /> },
   {
     element: <ProtectedRoute />,
@@ -63,4 +63,8 @@ export const router = createBrowserRouter([
     ],
   },
   { path: "*", element: <NotFoundPage /> },
-]);
+];
+
+// basename: "/" normally; "/<repo>/" when the demo is hosted on GitHub Pages
+// (Vite's `base`, set at build time, ends up in BASE_URL).
+export const router = createBrowserRouter(routes, { basename: import.meta.env.BASE_URL });

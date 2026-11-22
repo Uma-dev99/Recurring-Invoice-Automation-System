@@ -1,10 +1,13 @@
-import { useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router";
 
 import { useCurrentUser, useLogout } from "@/features/auth/hooks";
 import { useAttentionSummary } from "@/features/invoices/hooks";
 import { NAV_ITEMS } from "@/routes/navigation";
 import { cn } from "@/utils/cn";
+
+// Only the portfolio demo build has this banner; the normal build drops it entirely.
+const DemoBanner = import.meta.env.VITE_DEMO_MODE === "true" ? lazy(() => import("@/demo/DemoBanner")) : null;
 
 export function AppLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -62,6 +65,11 @@ export function AppLayout() {
 
       <div className="flex min-w-0 flex-1 flex-col">
         <Topbar onMenuClick={() => setSidebarOpen(true)} />
+        {DemoBanner && (
+          <Suspense fallback={null}>
+            <DemoBanner />
+          </Suspense>
+        )}
         <main className="flex-1 overflow-y-auto p-6">
           <Outlet />
         </main>

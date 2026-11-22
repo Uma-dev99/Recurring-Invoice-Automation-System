@@ -64,6 +64,15 @@ function buildUrl(path: string, query?: RequestOptions["query"]): string {
 
 export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const method = options.method ?? "GET";
+
+  // Portfolio demo build only: answer from the in-browser fake API instead of Django.
+  // VITE_DEMO_MODE is a build-time constant, so in the normal build this whole branch
+  // (and the demo code it would load) is removed by the bundler.
+  if (import.meta.env.VITE_DEMO_MODE === "true") {
+    const { handleDemoRequest } = await import("@/demo/mockApi");
+    return handleDemoRequest<T>(path, method, options.query, options.body);
+  }
+
   const headers: Record<string, string> = { Accept: "application/json" };
 
   if (options.body !== undefined) {
