@@ -7,6 +7,7 @@ import { ErrorState } from "@/components/ui/ErrorState";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Spinner } from "@/components/ui/Spinner";
 import { StatusBadge } from "@/components/ui/StatusBadge";
+import { CustomerAgreementsPanel } from "@/features/agreements/CustomerAgreementsPanel";
 import { CustomerForm } from "@/features/customers/CustomerForm";
 import { useCustomer, useSetCustomerActive, useUpdateCustomer } from "@/features/customers/hooks";
 import { CUSTOMER_STATUS_LABEL, CUSTOMER_STATUS_TONE, CUSTOMER_TYPE_LABEL } from "@/features/customers/labels";
@@ -95,6 +96,8 @@ function CustomerDetail({ customer }: { customer: Customer }) {
           <CustomerDetails customer={customer} />
         )}
       </div>
+
+      {!editing && <CustomerAgreementsPanel customer={customer} />}
     </>
   );
 }

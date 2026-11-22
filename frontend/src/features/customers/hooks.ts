@@ -40,7 +40,11 @@ function useStoreCustomer() {
     queryClient.setQueryData(queryKeys.customers.detail(customer.id), customer);
     // Lists may now be out of date (new row, changed name/status affects search,
     // filters and order), so mark them stale. Visible lists refetch right away.
-    return queryClient.invalidateQueries({ queryKey: queryKeys.customers.lists() });
+    // Agreements embed the customer's name and status, so refresh those too.
+    return Promise.all([
+      queryClient.invalidateQueries({ queryKey: queryKeys.customers.lists() }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.agreements.all }),
+    ]);
   };
 }
 

@@ -1,15 +1,18 @@
-import { useEffect, useRef, useState } from "react";
-import { Link, useSearchParams } from "react-router";
+import { useEffect } from "react";
+import { Link } from "react-router";
 
 import { ApiError } from "@/api/client";
 import type { CustomerListParams, CustomerOrdering, CustomerStatus, CustomerType } from "@/api/customers";
 import { ErrorState } from "@/components/ui/ErrorState";
+import { FilterSelect } from "@/components/ui/FilterSelect";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Pagination } from "@/components/ui/Pagination";
+import { SortHeader } from "@/components/ui/SortHeader";
 import { Spinner } from "@/components/ui/Spinner";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { useCustomers } from "@/features/customers/hooks";
 import { CUSTOMER_STATUS_LABEL, CUSTOMER_STATUS_TONE, CUSTOMER_TYPE_LABEL } from "@/features/customers/labels";
+import { oneOf, positiveInt, useDebouncedUrlSearch, useListSearchParams } from "@/hooks/useListUrlState";
 
 const STATUSES: CustomerStatus[] = ["ACTIVE", "INACTIVE"];
 const TYPES: CustomerType[] = ["PERSON", "COMPANY"];
@@ -21,21 +24,15 @@ const ORDERINGS: CustomerOrdering[] = [
   "created_at",
   "-created_at",
 ];
-const SEARCH_DEBOUNCE_MS = 300;
-
-function oneOf<T extends string>(value: string | null, allowed: readonly T[]): T | undefined {
-  return allowed.includes(value as T) ? (value as T) : undefined;
-}
+const DEFAULT_ORDERING: CustomerOrdering = "name";
 
 /**
  * The URL is the single source of truth for the list's state (?page=&search=&...).
- * Bookmarks, shared links and the back button then all show the same view. Values
- * that don't make sense (typed by hand) are ignored rather than sent to the API.
+ * Values that don't make sense (typed by hand) are ignored rather than sent to the API.
  */
 function readParams(searchParams: URLSearchParams): CustomerListParams & { page: number } {
-  const page = Number(searchParams.get("page"));
   return {
-    page: Number.isInteger(page) && page > 0 ? page : 1,
+    page: positiveInt(searchParams.get("page")),
     search: searchParams.get("search") || undefined,
     status: oneOf(searchParams.get("status"), STATUSES),
     customer_type: oneOf(searchParams.get("customer_type"), TYPES),
@@ -44,49 +41,13 @@ function readParams(searchParams: URLSearchParams): CustomerListParams & { page:
 }
 
 export function CustomersPage() {
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams, updateParams] = useListSearchParams();
   const params = readParams(searchParams);
   const { data, isPending, isError, error, isFetching, refetch } = useCustomers(params);
 
-  /** Change some list params; any change other than the page itself goes back to page 1. */
-  const updateParams = (changes: Partial<Record<keyof CustomerListParams, string | undefined>>) => {
-    setSearchParams((current) => {
-      const next = new URLSearchParams(current);
-      for (const [key, value] of Object.entries(changes)) {
-        if (value) next.set(key, value);
-        else next.delete(key);
-      }
-      if (!("page" in changes)) next.delete("page");
-      return next;
-    });
-  };
-
-  // Search box: typing updates local state at once; the URL (and so the API call)
-  // follows 300 ms after the last keystroke, instead of one request per letter.
-  // (updateParams is recreated every render and left out of the effect dependencies
-  // on purpose: only the typed text should restart the timer.)
-  const urlSearch = params.search ?? "";
-  const [searchInput, setSearchInput] = useState(urlSearch);
-  const lastPushedSearch = useRef(urlSearch);
-  useEffect(() => {
-    const trimmed = searchInput.trim();
-    if (trimmed === urlSearch) return;
-    const timer = setTimeout(() => {
-      lastPushedSearch.current = trimmed;
-      updateParams({ search: trimmed || undefined });
-    }, SEARCH_DEBOUNCE_MS);
-    return () => clearTimeout(timer);
-  }, [searchInput, urlSearch]);
-
-  // The URL can also change without typing: the back button, or the "Customers" link in
-  // the sidebar (which clears all filters). Then the box must show the URL's value,
-  // otherwise the debounce above would put the old search straight back.
-  useEffect(() => {
-    if (urlSearch !== lastPushedSearch.current) {
-      lastPushedSearch.current = urlSearch;
-      setSearchInput(urlSearch);
-    }
-  }, [urlSearch]);
+  const [searchInput, setSearchInput] = useDebouncedUrlSearch(params.search ?? "", (search) =>
+    updateParams({ search }),
+  );
 
   // A page number past the end (e.g. after a filter shrank the list) gets a 404 from
   // the API; jump back to page 1 instead of showing an error.
@@ -96,6 +57,11 @@ export function CustomersPage() {
   }, [pageOutOfRange]);
 
   const hasFilters = Boolean(params.search || params.status || params.customer_type);
+  const sortProps = {
+    ordering: params.ordering,
+    defaultOrdering: DEFAULT_ORDERING,
+    onSort: (ordering: string | undefined) => updateParams({ ordering }),
+  };
 
   return (
     <>
@@ -159,18 +125,13 @@ export function CustomersPage() {
               <table className="min-w-full divide-y divide-slate-200 text-sm">
                 <thead className="bg-slate-50 text-left text-xs font-medium uppercase tracking-wide text-slate-500">
                   <tr>
-                    <SortHeader label="Name" field="name" ordering={params.ordering} onSort={updateParams} />
-                    <SortHeader
-                      label="External id"
-                      field="external_customer_id"
-                      ordering={params.ordering}
-                      onSort={updateParams}
-                    />
+                    <SortHeader label="Name" field="name" {...sortProps} />
+                    <SortHeader label="External id" field="external_customer_id" {...sortProps} />
                     <th scope="col" className="px-4 py-3">Type</th>
                     <th scope="col" className="px-4 py-3">Email</th>
                     <th scope="col" className="px-4 py-3">City</th>
                     <th scope="col" className="px-4 py-3">Status</th>
-                    <SortHeader label="Created" field="created_at" ordering={params.ordering} onSort={updateParams} />
+                    <SortHeader label="Created" field="created_at" {...sortProps} />
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -211,73 +172,6 @@ export function CustomersPage() {
         )}
       </div>
     </>
-  );
-}
-
-function FilterSelect<T extends string>({
-  id,
-  label,
-  value,
-  options,
-  onChange,
-}: {
-  id: string;
-  label: string;
-  value: T | undefined;
-  options: { value: T; label: string }[];
-  onChange: (value: T | undefined) => void;
-}) {
-  return (
-    <div>
-      <label htmlFor={id} className="block text-xs font-medium text-slate-600">
-        {label}
-      </label>
-      <select
-        id={id}
-        value={value ?? ""}
-        onChange={(event) => onChange((event.target.value || undefined) as T | undefined)}
-        className="mt-1 block rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500"
-      >
-        <option value="">All</option>
-        {options.map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.label}
-          </option>
-        ))}
-      </select>
-    </div>
-  );
-}
-
-/** Column header that sorts by `field`; clicking again flips the direction. */
-function SortHeader({
-  label,
-  field,
-  ordering = "name",
-  onSort,
-}: {
-  label: string;
-  field: "name" | "external_customer_id" | "created_at";
-  ordering?: CustomerOrdering;
-  onSort: (changes: { ordering: string | undefined }) => void;
-}) {
-  const active = ordering === field || ordering === `-${field}`;
-  const descending = ordering === `-${field}`;
-  const next = active && !descending ? `-${field}` : field;
-
-  return (
-    <th scope="col" className="px-4 py-3" aria-sort={active ? (descending ? "descending" : "ascending") : "none"}>
-      <button
-        type="button"
-        onClick={() => onSort({ ordering: next === "name" ? undefined : next })}
-        className="inline-flex items-center gap-1 uppercase tracking-wide hover:text-slate-900"
-      >
-        {label}
-        <span aria-hidden="true" className={active ? "text-slate-900" : "text-slate-300"}>
-          {active && descending ? "↓" : "↑"}
-        </span>
-      </button>
-    </th>
   );
 }
 
