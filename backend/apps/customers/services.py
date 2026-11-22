@@ -11,11 +11,20 @@ Rules every function here follows:
     Django ValidationError (bad input) or DomainError (a business rule says no).
 """
 
+from collections.abc import Callable
+
 from django.contrib.auth.base_user import AbstractBaseUser, BaseUserManager
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 
-from apps.customers.exceptions import CustomerAlreadyActive, CustomerAlreadyInactive
+# Customers ask the agreements app a read-only question ("any live agreements?") through
+# its selector, rather than querying agreement statuses themselves.
+from apps.agreements.selectors import has_live_agreements
+from apps.customers.exceptions import (
+    CustomerAlreadyActive,
+    CustomerAlreadyInactive,
+    CustomerHasLiveAgreements,
+)
 from apps.customers.models import DUPLICATE_EXTERNAL_ID_MESSAGE, Customer
 from apps.operations.services import record_audit_event
 
@@ -118,14 +127,25 @@ def update_customer(*, customer: Customer, data: dict, actor: AbstractBaseUser |
 def deactivate_customer(*, customer: Customer, actor: AbstractBaseUser | None) -> Customer:
     """Mark a customer INACTIVE. History stays; customers are never deleted.
 
-    Phase 3 adds a rule here: a customer with active agreements cannot be deactivated.
+    Refused while the customer has active or paused agreements: those still produce
+    bills, so they must be cancelled first.
     """
+
+    def no_live_agreements(locked: Customer) -> None:
+        # Checked while holding the customer's row lock; create_agreement() takes the same
+        # lock, so no agreement can be created between this check and the status change.
+        if has_live_agreements(locked):
+            raise CustomerHasLiveAgreements(
+                "This customer has active or paused agreements. Cancel them first."
+            )
+
     return _change_status(
         customer=customer,
         actor=actor,
         new_status=Customer.Status.INACTIVE,
         action="customer.deactivated",
         already_error=CustomerAlreadyInactive("This customer is already inactive."),
+        precondition=no_live_agreements,
     )
 
 
@@ -146,11 +166,14 @@ def _change_status(
     new_status: str,
     action: str,
     already_error: Exception,
+    precondition: Callable[[Customer], None] | None = None,
 ) -> Customer:
     with transaction.atomic():
         locked = Customer.objects.select_for_update().get(pk=customer.pk)
         if locked.status == new_status:
             raise already_error
+        if precondition:
+            precondition(locked)
         old_status = locked.status
         locked.status = new_status
         locked.save(update_fields=["status", "updated_at"])

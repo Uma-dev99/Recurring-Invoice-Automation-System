@@ -129,8 +129,9 @@ erDiagram
     BILLING_AGREEMENT {
         uuid id PK
         uuid customer_id FK "PROTECT"
-        decimal amount
-        char3 currency
+        string description "shown on invoice"
+        decimal amount "per month, VAT included"
+        char3 currency "EUR only"
         date anchor_date
         int total_cycles "default 12"
         string status "ACTIVE|PAUSED|CANCELLED|COMPLETED"
