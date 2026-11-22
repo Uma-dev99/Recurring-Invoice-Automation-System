@@ -12,6 +12,28 @@ Architecture and design decisions: [docs/architecture.md](docs/architecture.md) 
 How a request flows through the code: [docs/flow.md](docs/flow.md) ·
 Running in production: [docs/deployment.md](docs/deployment.md)
 
+## Live demo
+
+**https://uma-dev99.github.io/Recurring-Invoice-Automation-System/** (any email and password)
+
+The demo is the real React app with the backend replaced by a fake API that runs in
+your browser (`frontend/src/demo/`). It has the same endpoints, response shapes, error
+codes and business rules, and sample data that is always relative to today. Nothing
+leaves the browser, and your changes are kept on your device until you press
+**Reset data**. Things to try:
+
+- **Failed / pending jobs**: retry an UNKNOWN invoice and see the "check with Riverty
+  first" safeguard; mark a stuck invoice as received; invoice or skip a missed month.
+- **Agreements**: pause, resume, cancel or reprice one. Prices of already-invoiced
+  months are protected, and every change shows up in the **Audit log**.
+- **Simulate billing run** (in the yellow banner) does what the hourly background jobs
+  do. Put `[reject]`, `[retry]` or `[timeout]` in an agreement's description to choose
+  how the fake Riverty answers.
+
+Run it locally with `npm run dev:demo` in `frontend/`. It's published by
+[.github/workflows/pages.yml](.github/workflows/pages.yml) on every push to `main`
+that changes `frontend/`. The normal build (`npm run build`) contains none of the demo code.
+
 ## Repository layout
 
 ```

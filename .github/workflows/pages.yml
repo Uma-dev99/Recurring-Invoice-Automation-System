@@ -1,0 +1,67 @@
+# Portfolio demo: publishes the React app in demo mode (in-browser fake API, sample data,
+# no backend) to GitHub Pages, free. Live at https://<owner>.github.io/<repository>/
+#
+# One-time setup: Settings -> Pages -> Build and deployment -> Source: "GitHub Actions".
+name: Pages demo
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "frontend/**"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+# One publish at a time; a newer push replaces a waiting one.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - run: npm ci
+
+      - name: Build the demo
+        # A project site is served from /<repository>/, not from the domain root.
+        env:
+          VITE_BASE: /${{ github.event.repository.name }}/
+        run: npm run build:demo
+
+      - name: Let deep links work
+        # Pages has no "send every path to index.html" rule; it serves 404.html for unknown
+        # paths, so a copy of the app there lets /customers/... open directly or on reload.
+        run: cp dist/index.html dist/404.html
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: frontend/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write # publish the site
+      id-token: write # prove to Pages that this run is allowed to
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

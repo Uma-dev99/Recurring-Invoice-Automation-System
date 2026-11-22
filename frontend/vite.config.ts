@@ -8,7 +8,16 @@ import { defineConfig } from "vite";
 // Locally: Django on :8000. In Docker Compose: the "backend" service.
 const apiTarget = process.env.VITE_API_PROXY_TARGET ?? "http://localhost:8000";
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
+  // "vite --mode demo" / "vite build --mode demo": the portfolio demo, with an in-browser
+  // fake API instead of Django (src/demo/). Always defined, so the normal build sees a
+  // constant "false" and drops all demo code.
+  define: {
+    "import.meta.env.VITE_DEMO_MODE": JSON.stringify(mode === "demo" ? "true" : "false"),
+  },
+  // Where the app is served from. "/" normally; GitHub Pages serves a project site from
+  // "/<repository>/", so its workflow sets VITE_BASE.
+  base: process.env.VITE_BASE ?? "/",
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: { "@": path.resolve(__dirname, "src") },
@@ -28,4 +37,4 @@ export default defineConfig({
       "/static": { target: apiTarget, changeOrigin: false },
     },
   },
-});
+}));
