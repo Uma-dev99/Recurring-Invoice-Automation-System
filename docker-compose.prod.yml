@@ -99,7 +99,12 @@ services:
     build: ./frontend
     image: ${WEB_IMAGE:-invoice-automation-web}:${APP_VERSION:-latest}
     ports:
-      - "${WEB_PORT:-8080}:8080"
+      # 127.0.0.1 by default: only the HTTPS proxy on the same server can reach nginx.
+      # Docker writes its own firewall rules, so a port published on all interfaces is
+      # reachable from the internet even if ufw "blocks" it, which would let visitors
+      # bypass HTTPS. Set WEB_BIND=0.0.0.0 only when a separate load balancer (another
+      # machine) must reach this port, and then restrict it in that provider's firewall.
+      - "${WEB_BIND:-127.0.0.1}:${WEB_PORT:-8080}:8080"
     depends_on:
       backend:
         condition: service_healthy

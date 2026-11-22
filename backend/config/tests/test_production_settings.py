@@ -11,8 +11,8 @@ from pathlib import Path
 import pytest
 
 BACKEND = Path(__file__).resolve().parents[2]
-# The placeholder used only while building the image (see backend/Dockerfile). It is
-# public in the repository, so production must refuse it at runtime.
+# The fixed build-time placeholder the Dockerfile used before it switched to a random key.
+# It remains public in the git history, so production must keep refusing it.
 DOCKERFILE_BUILD_KEY = "build-only-not-used-at-runtime-0123456789abcdefghijklmnopqrstuvwxyz"
 
 GOOD = {
