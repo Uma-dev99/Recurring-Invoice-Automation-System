@@ -14,8 +14,13 @@ error parser:
 
 import logging
 
+from django.core.exceptions import NON_FIELD_ERRORS
+from django.core.exceptions import PermissionDenied as DjangoPermissionDenied
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.http import Http404
 from rest_framework import exceptions, status
 from rest_framework.response import Response
+from rest_framework.settings import api_settings
 from rest_framework.views import exception_handler as drf_exception_handler
 
 logger = logging.getLogger(__name__)
@@ -42,10 +47,34 @@ def _error_body(code: str, message: str, details: object | None = None) -> dict:
     return {"error": {"code": code, "message": message, "details": details or {}}}
 
 
+def _django_validation_details(exc: DjangoValidationError) -> dict:
+    """Django ValidationError → {"field": [messages]}, using DRF's non-field key."""
+    if not hasattr(exc, "error_dict"):
+        return {api_settings.NON_FIELD_ERRORS_KEY: exc.messages}
+    details = exc.message_dict
+    if NON_FIELD_ERRORS in details:  # Django's "__all__"
+        details[api_settings.NON_FIELD_ERRORS_KEY] = details.pop(NON_FIELD_ERRORS)
+    return details
+
+
 def api_exception_handler(exc: Exception, context: dict):
     """DRF exception handler producing the error envelope documented above."""
     if isinstance(exc, DomainError):
         return Response(_error_body(exc.code, exc.message, exc.details), status=exc.status_code)
+
+    if isinstance(exc, DjangoValidationError):
+        # Services validate with the model's own rules (full_clean), which raise Django's
+        # ValidationError. DRF only understands its own ValidationError and would answer
+        # 500, so convert it: same 400 status and envelope as a serializer error.
+        exc = exceptions.ValidationError(detail=_django_validation_details(exc))
+
+    # Django's own 404/403 (get_object_or_404, generic views' get_object). DRF's handler
+    # answers them, but they are not DRF APIExceptions, so the envelope code below would
+    # skip them. Convert first so they get {"error": {"code": "not_found", ...}} too.
+    if isinstance(exc, Http404):
+        exc = exceptions.NotFound()
+    elif isinstance(exc, DjangoPermissionDenied):
+        exc = exceptions.PermissionDenied()
 
     response = drf_exception_handler(exc, context)
     if response is None:

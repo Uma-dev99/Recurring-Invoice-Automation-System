@@ -1,5 +1,9 @@
 """The error envelope is a contract with the React client; these tests pin it down."""
 
+from django.core.exceptions import NON_FIELD_ERRORS
+from django.core.exceptions import PermissionDenied as DjangoPermissionDenied
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.http import Http404
 from rest_framework import exceptions
 
 from apps.core.exceptions import DomainError, api_exception_handler
@@ -43,6 +47,46 @@ def test_domain_error_maps_to_422_with_its_own_code():
         "message": "Cancelled agreements cannot be paused.",
         "details": {},
     }
+
+
+def test_django_validation_error_from_a_service_becomes_400_envelope():
+    # Services validate with model.full_clean(), which raises Django's ValidationError.
+    exc = DjangoValidationError(
+        {"email": ["Enter a valid email address."], NON_FIELD_ERRORS: ["Inconsistent data."]}
+    )
+
+    response = _handle(exc)
+
+    assert response.status_code == 400
+    assert response.data["error"]["code"] == "validation_error"
+    assert response.data["error"]["details"] == {
+        "email": ["Enter a valid email address."],
+        "non_field_errors": ["Inconsistent data."],
+    }
+
+
+def test_django_validation_error_without_fields_uses_non_field_errors():
+    response = _handle(DjangoValidationError("Something is wrong."))
+
+    assert response.status_code == 400
+    assert response.data["error"]["details"] == {"non_field_errors": ["Something is wrong."]}
+
+
+def test_django_http404_uses_envelope():
+    # Raised by get_object_or_404 and generic views. Message stays generic: Django's
+    # default text names the model ("No Customer matches the given query.").
+    response = _handle(Http404("No Customer matches the given query."))
+
+    assert response.status_code == 404
+    assert response.data["error"]["code"] == "not_found"
+    assert "Customer" not in response.data["error"]["message"]
+
+
+def test_django_permission_denied_uses_envelope():
+    response = _handle(DjangoPermissionDenied())
+
+    assert response.status_code == 403
+    assert response.data["error"]["code"] == "permission_denied"
 
 
 def test_unhandled_exception_is_left_to_django():
