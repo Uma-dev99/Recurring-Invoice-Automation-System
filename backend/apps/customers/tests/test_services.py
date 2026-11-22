@@ -7,9 +7,16 @@ from unittest import mock
 
 import pytest
 from django.core.exceptions import ValidationError
+from django.utils import timezone
 
+from apps.agreements.models import BillingAgreement
+from apps.agreements.tests.factories import make_agreement
 from apps.customers import services
-from apps.customers.exceptions import CustomerAlreadyActive, CustomerAlreadyInactive
+from apps.customers.exceptions import (
+    CustomerAlreadyActive,
+    CustomerAlreadyInactive,
+    CustomerHasLiveAgreements,
+)
 from apps.customers.models import DUPLICATE_EXTERNAL_ID_MESSAGE, Customer
 from apps.customers.tests.factories import customer_data, make_customer
 from apps.operations.models import AuditLog
@@ -204,3 +211,30 @@ def test_system_actor_is_allowed(db):
     customer = services.create_customer(data=customer_data(), actor=None)
 
     assert _audit_rows(customer)[0].actor is None
+
+
+# --- deactivation vs agreements (rule added in Phase 3) ------------------------------
+
+
+@pytest.mark.parametrize("status", [BillingAgreement.Status.ACTIVE, BillingAgreement.Status.PAUSED])
+def test_customer_with_live_agreement_cannot_be_deactivated(user, status):
+    customer = make_customer()
+    make_agreement(customer=customer, status=status)
+
+    with pytest.raises(CustomerHasLiveAgreements):
+        services.deactivate_customer(customer=customer, actor=user)
+
+    customer.refresh_from_db()
+    assert customer.status == Customer.Status.ACTIVE
+
+
+def test_customer_with_only_closed_agreements_can_be_deactivated(user):
+    customer = make_customer()
+    make_agreement(
+        customer=customer, status=BillingAgreement.Status.CANCELLED, cancelled_at=timezone.now()
+    )
+    make_agreement(customer=customer, status=BillingAgreement.Status.COMPLETED)
+
+    result = services.deactivate_customer(customer=customer, actor=user)
+
+    assert result.status == Customer.Status.INACTIVE

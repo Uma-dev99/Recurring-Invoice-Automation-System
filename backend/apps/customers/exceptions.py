@@ -13,3 +13,7 @@ class CustomerAlreadyInactive(DomainError):
 
 class CustomerAlreadyActive(DomainError):
     code = "customer_already_active"
+
+
+class CustomerHasLiveAgreements(DomainError):
+    code = "customer_has_live_agreements"

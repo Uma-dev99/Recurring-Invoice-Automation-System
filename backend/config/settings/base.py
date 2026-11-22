@@ -41,6 +41,7 @@ LOCAL_APPS = [
     "apps.accounts",
     "apps.operations",
     "apps.customers",
+    "apps.agreements",
 ]
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
 
@@ -168,6 +169,12 @@ SPECTACULAR_SETTINGS = {
     "VERSION": "1.0.0",
     "SERVE_INCLUDE_SCHEMA": False,
     "SCHEMA_PATH_PREFIX": r"/api/v1",
+    # Several models have a field called "status" with different choices. Without
+    # explicit names the generated schema calls one of them e.g. "Status372Enum".
+    "ENUM_NAME_OVERRIDES": {
+        "CustomerStatusEnum": "apps.customers.models.Customer.Status",
+        "AgreementStatusEnum": "apps.agreements.models.BillingAgreement.Status",
+    },
 }
 
 # ---------------------------------------------------------------------------
