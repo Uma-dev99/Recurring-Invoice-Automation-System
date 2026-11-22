@@ -7,6 +7,7 @@ from django.http import Http404
 from rest_framework import exceptions
 
 from apps.core.exceptions import DomainError, api_exception_handler
+from apps.core.request_id import request_id_var
 
 
 def _handle(exc):
@@ -89,6 +90,33 @@ def test_django_permission_denied_uses_envelope():
     assert response.data["error"]["code"] == "permission_denied"
 
 
-def test_unhandled_exception_is_left_to_django():
-    # Returning None makes Django produce a 500 and log the traceback.
-    assert _handle(RuntimeError("unexpected")) is None
+def test_unhandled_exception_is_a_json_500_with_reference(caplog):
+    token = request_id_var.set("req-500-test")
+    try:
+        with caplog.at_level("ERROR", logger="apps.core.exceptions"):
+            response = _handle(RuntimeError("database password is hunter2"))
+    finally:
+        request_id_var.reset(token)
+
+    assert response.status_code == 500
+    assert response.data["error"]["code"] == "server_error"
+    assert response.data["error"]["details"] == {"request_id": "req-500-test"}
+    assert "req-500-test" in response.data["error"]["message"]
+    # The internal error text never reaches the client...
+    assert "hunter2" not in str(response.data)
+    # ...but the full traceback is logged, findable by the same request id.
+    [record] = caplog.records
+    assert record.exc_info is not None
+
+
+def test_unhandled_exception_through_the_api_is_json(authenticated_client, monkeypatch):
+    from apps.customers import views
+
+    monkeypatch.setattr(views, "list_customers", lambda **kw: 1 / 0)
+
+    response = authenticated_client.get("/api/v1/customers/")
+
+    assert response.status_code == 500
+    body = response.json()
+    assert body["error"]["code"] == "server_error"
+    assert body["error"]["details"]["request_id"] == response["X-Request-ID"]

@@ -44,6 +44,8 @@ class AuditLog(UUIDModel):
             ),
             # "What did user Y change?"
             models.Index(fields=["actor", "-created_at"], name="audit_actor_idx"),
+            # The audit-log screen: everything, newest first, optionally by date range.
+            models.Index(fields=["-created_at"], name="audit_created_idx"),
         ]
 
     def save(self, *args, **kwargs) -> None:

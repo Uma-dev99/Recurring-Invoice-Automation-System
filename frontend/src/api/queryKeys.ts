@@ -5,6 +5,7 @@
  * customer list and detail query at once, so keys must be built consistently.
  */
 import type { AgreementListParams } from "@/api/agreements";
+import type { AuditLogParams } from "@/api/auditLogs";
 import type { CustomerListParams } from "@/api/customers";
 import type { InvoiceListParams } from "@/api/invoices";
 
@@ -38,6 +39,12 @@ export const queryKeys = {
     all: INVOICES,
     list: (params: InvoiceListParams) => [...INVOICES, "list", params] as const,
     detail: (id: string) => [...INVOICES, "detail", id] as const,
+  },
+  dashboard: ["dashboard"] as const,
+  auditLogs: {
+    all: ["audit-logs"] as const,
+    list: (params: AuditLogParams) => ["audit-logs", "list", params] as const,
+    filters: () => ["audit-logs", "filters"] as const,
   },
   attention: {
     all: ATTENTION,

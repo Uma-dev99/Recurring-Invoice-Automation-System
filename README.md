@@ -8,7 +8,9 @@ collections; this system never processes payments.
 **Stack:** Django 5.2 LTS · Django REST Framework · PostgreSQL · (Celery, Redis from Phase 7) ·
 React 19 · Vite · Tailwind CSS · TanStack Query · React Hook Form · Zod
 
-Architecture and design decisions: [docs/architecture.md](docs/architecture.md)
+Architecture and design decisions: [docs/architecture.md](docs/architecture.md) ·
+How a request flows through the code: [docs/flow.md](docs/flow.md) ·
+Running in production: [docs/deployment.md](docs/deployment.md)
 
 ## Repository layout
 

@@ -1,0 +1,3 @@
+-r base.txt
+# Production web server (development uses runserver).
+gunicorn==23.0.0

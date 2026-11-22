@@ -10,6 +10,7 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { Spinner } from "@/components/ui/Spinner";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { ChangeAmountForm } from "@/features/agreements/ChangeAmountForm";
+import { HistoryPanel } from "@/features/audit/HistoryPanel";
 import {
   isVersionConflict,
   useAgreement,
@@ -116,6 +117,7 @@ function AgreementDetail({ agreement }: { agreement: Agreement }) {
       </div>
 
       <ScheduleSection agreement={agreement} closed={closed} mutation={changeAmount} />
+      <HistoryPanel entityType="agreements.billingagreement" entityId={agreement.id} />
     </>
   );
 }

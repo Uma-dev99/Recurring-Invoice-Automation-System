@@ -45,11 +45,15 @@ LOCAL_APPS = [
     "apps.agreements",
     "apps.billing",
     "apps.invoicing",
+    "apps.dashboard",
 ]
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
 
 MIDDLEWARE = [
+    # First, so every later step (and every log line) already has the request id.
+    "apps.core.request_id.RequestIDMiddleware",
     "django.middleware.security.SecurityMiddleware",
+    # (production.py inserts WhiteNoise here to serve collected static files)
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -184,22 +188,32 @@ SPECTACULAR_SETTINGS = {
 
 # ---------------------------------------------------------------------------
 # Logging: one line per event to stdout; the container platform collects it.
-# Structured (JSON) logging and request IDs arrive in Phase 10.
+# Every line carries the request id (apps/core/request_id.py). Format:
+#   "text" (default, readable while developing) or "json" (production: one JSON object
+#   per line, so a log platform can search fields like request_id or submission_id).
 # ---------------------------------------------------------------------------
 LOG_LEVEL = env_str("DJANGO_LOG_LEVEL", default="INFO")
+LOG_FORMAT = env_str("DJANGO_LOG_FORMAT", default="text")
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
+    "filters": {"request_id": {"()": "apps.core.request_id.RequestIDLogFilter"}},
     "formatters": {
-        "standard": {"format": "%(asctime)s %(levelname)s %(name)s %(message)s"},
+        "text": {"format": "%(asctime)s %(levelname)s %(name)s [%(request_id)s] %(message)s"},
+        "json": {"()": "apps.core.log_format.JsonFormatter"},
     },
     "handlers": {
-        "console": {"class": "logging.StreamHandler", "formatter": "standard"},
+        "console": {
+            "class": "logging.StreamHandler",
+            "formatter": LOG_FORMAT,
+            "filters": ["request_id"],
+        },
     },
     "root": {"handlers": ["console"], "level": LOG_LEVEL},
     "loggers": {
         "django": {"handlers": ["console"], "level": LOG_LEVEL, "propagate": False},
         "apps": {"handlers": ["console"], "level": LOG_LEVEL, "propagate": False},
+        "celery": {"handlers": ["console"], "level": LOG_LEVEL, "propagate": False},
     },
 }
 
@@ -247,6 +261,11 @@ CELERY_WORKER_PREFETCH_MULTIPLIER = 1
 CELERY_TASK_TIME_LIMIT = 5 * 60  # hard kill after 5 minutes
 CELERY_TASK_SOFT_TIME_LIMIT = 4 * 60
 CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
+# Let Django's LOGGING (below) format worker logs too: same format, same request ids.
+# By default Celery takes over the root logger and redirects stdout/stderr into its own
+# logging, which fights with our handler (which writes to stderr) and loses messages.
+CELERY_WORKER_HIJACK_ROOT_LOGGER = False
+CELERY_WORKER_REDIRECT_STDOUTS = False
 # "At 06:00" in the beat schedule means 06:00 in the billing time zone, not UTC.
 CELERY_TIMEZONE = BILLING_TIME_ZONE
 

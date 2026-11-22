@@ -7,6 +7,7 @@ import { ErrorState } from "@/components/ui/ErrorState";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Spinner } from "@/components/ui/Spinner";
 import { StatusBadge } from "@/components/ui/StatusBadge";
+import { HistoryPanel } from "@/features/audit/HistoryPanel";
 import { useInvoice } from "@/features/invoices/hooks";
 import { OperatorActions } from "@/features/invoices/OperatorActions";
 import {
@@ -54,6 +55,7 @@ export function InvoiceDetailPage() {
           <InvoiceFacts invoice={invoice} />
         </div>
         <Attempts attempts={invoice.attempts} />
+        <HistoryPanel entityType="invoicing.invoicesubmission" entityId={invoice.id} />
       </div>
     </>
   );

@@ -14,6 +14,6 @@ export const NAV_ITEMS: NavItem[] = [
   { to: "/agreements", label: "Billing Agreements" },
   { to: "/invoices", label: "Invoices" },
   { to: "/jobs", label: "Failed / Pending Jobs" },
-  { to: "/audit-logs", label: "Audit Logs", phase: 9 },
+  { to: "/audit-logs", label: "Audit Logs" },
   { to: "/settings", label: "Settings", phase: 10 },
 ];

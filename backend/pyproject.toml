@@ -2,7 +2,7 @@
 DJANGO_SETTINGS_MODULE = "config.settings.test"
 python_files = ["test_*.py"]
 addopts = "-ra --strict-markers"
-testpaths = ["apps"]
+testpaths = ["apps", "config"]
 
 [tool.ruff]
 line-length = 100

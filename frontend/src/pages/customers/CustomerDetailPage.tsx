@@ -8,6 +8,7 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { Spinner } from "@/components/ui/Spinner";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { CustomerAgreementsPanel } from "@/features/agreements/CustomerAgreementsPanel";
+import { HistoryPanel } from "@/features/audit/HistoryPanel";
 import { CustomerForm } from "@/features/customers/CustomerForm";
 import { useCustomer, useSetCustomerActive, useUpdateCustomer } from "@/features/customers/hooks";
 import { CUSTOMER_STATUS_LABEL, CUSTOMER_STATUS_TONE, CUSTOMER_TYPE_LABEL } from "@/features/customers/labels";
@@ -98,6 +99,7 @@ function CustomerDetail({ customer }: { customer: Customer }) {
       </div>
 
       {!editing && <CustomerAgreementsPanel customer={customer} />}
+      {!editing && <HistoryPanel entityType="customers.customer" entityId={customer.id} />}
     </>
   );
 }
