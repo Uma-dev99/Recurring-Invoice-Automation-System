@@ -1,6 +1,9 @@
 import { createBrowserRouter } from "react-router";
 
 import { AppLayout } from "@/layouts/AppLayout";
+import { AgreementDetailPage } from "@/pages/agreements/AgreementDetailPage";
+import { AgreementNewPage } from "@/pages/agreements/AgreementNewPage";
+import { AgreementsPage } from "@/pages/agreements/AgreementsPage";
 import { CustomerDetailPage } from "@/pages/customers/CustomerDetailPage";
 import { CustomerNewPage } from "@/pages/customers/CustomerNewPage";
 import { CustomersPage } from "@/pages/customers/CustomersPage";
@@ -24,6 +27,12 @@ const customerRoutes = [
   { path: "customers/:customerId", element: <CustomerDetailPage /> },
 ];
 
+const agreementRoutes = [
+  { path: "agreements", element: <AgreementsPage /> },
+  { path: "agreements/new", element: <AgreementNewPage /> },
+  { path: "agreements/:agreementId", element: <AgreementDetailPage /> },
+];
+
 export const router = createBrowserRouter([
   { path: "/login", element: <LoginPage /> },
   {
@@ -32,7 +41,12 @@ export const router = createBrowserRouter([
       {
         path: "/",
         element: <AppLayout />,
-        children: [{ index: true, element: <DashboardPage /> }, ...customerRoutes, ...placeholderRoutes],
+        children: [
+          { index: true, element: <DashboardPage /> },
+          ...customerRoutes,
+          ...agreementRoutes,
+          ...placeholderRoutes,
+        ],
       },
     ],
   },
