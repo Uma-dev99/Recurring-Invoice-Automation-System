@@ -37,10 +37,12 @@ RUN pip install -r requirements/prod.txt
 COPY --chown=app:app . .
 
 # Collect static files (admin, API docs) into the image at build time. Production
-# settings refuse to load without real values, so give harmless build-only ones: no
-# database or secret is used by collectstatic.
+# settings refuse to load without real values, so give harmless ones for this single
+# command. The secret key is RANDOM and exists only while this command runs: it is not
+# stored in the image (inline variables, not ENV) and never appears in the repository.
+# collectstatic uses neither the key nor the database.
 RUN DJANGO_SETTINGS_MODULE=config.settings.production \
-    DJANGO_SECRET_KEY=build-only-not-used-at-runtime-0123456789abcdefghijklmnopqrstuvwxyz \
+    DJANGO_SECRET_KEY="$(python -c 'import secrets; print(secrets.token_urlsafe(50))')" \
     DJANGO_ALLOWED_HOSTS=build.invalid \
     DJANGO_CSRF_TRUSTED_ORIGINS=https://build.invalid \
     POSTGRES_DB=x POSTGRES_USER=x POSTGRES_PASSWORD=x \

@@ -50,6 +50,7 @@ ignored) and readable only by the deploy user (`chmod 600 .env.prod`).
 | `GUNICORN_WORKERS` | | Web processes, about 2 × CPU cores + 1 (default 3). |
 | `CELERY_CONCURRENCY` | | Parallel tasks per worker container (default 2). |
 | `WEB_PORT` | | Host port nginx listens on (default 8080). |
+| `WEB_BIND` | | Address nginx is published on: `127.0.0.1` (default; only a proxy on the same server can reach it) or `0.0.0.0` (a load balancer on another machine). **Docker bypasses `ufw`**: a port published on `0.0.0.0` is open to the internet unless the cloud provider's firewall blocks it. |
 
 ## First deployment
 
