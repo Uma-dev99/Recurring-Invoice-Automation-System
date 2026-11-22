@@ -51,7 +51,9 @@ services:
       retries: 10
 
   backend:
-    build: ./backend
+    build:
+      context: ./backend
+      target: dev
     command: sh -c "python manage.py migrate && python manage.py runserver 0.0.0.0:8000"
     environment: *backend-env
     ports:
@@ -71,7 +73,9 @@ services:
 
   # Runs background tasks: submitting invoices, retries, reconciliation.
   worker:
-    build: ./backend
+    build:
+      context: ./backend
+      target: dev
     command: celery -A config worker --loglevel=info --concurrency=2
     environment: *backend-env
     volumes:
@@ -83,7 +87,9 @@ services:
   # The clock: sends the scheduled tasks in CELERY_BEAT_SCHEDULE. Run exactly ONE beat,
   # otherwise every scheduled task would be sent twice (harmless, but wasteful).
   beat:
-    build: ./backend
+    build:
+      context: ./backend
+      target: dev
     # The schedule state file goes to /tmp, not into the mounted source folder.
     command: celery -A config beat --loglevel=info --schedule /tmp/celerybeat-schedule
     environment: *backend-env

@@ -6,42 +6,101 @@ import { queryKeys } from "@/api/queryKeys";
 import { KpiCard } from "@/components/ui/KpiCard";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Spinner } from "@/components/ui/Spinner";
+import { ErrorState } from "@/components/ui/ErrorState";
 import { StatusBadge, type StatusTone } from "@/components/ui/StatusBadge";
-import { useAttentionSummary } from "@/features/invoices/hooks";
+import { AuditEntryList } from "@/features/audit/AuditEntryList";
+import { useAuditLogs, useDashboard } from "@/features/audit/hooks";
+import { formatMoney } from "@/utils/format";
 
 /**
- * Dashboard shell. KPI values stay empty ("—") until the backend computes them
- * (Phase 9): the frontend never invents or calculates financial figures itself.
+ * Every figure here is computed by the backend (apps/dashboard/selectors.py) and only
+ * displayed: the frontend never calculates financial numbers itself.
  */
 export function DashboardPage() {
-  const { data: attention } = useAttentionSummary();
+  const { data: kpis, isError } = useDashboard();
+  const monthName = kpis ? monthLabel(kpis.month_start) : "This month";
 
   return (
     <>
-      <PageHeader title="Dashboard" description="Billing operations overview." />
+      <PageHeader
+        title="Dashboard"
+        description={kpis ? `Billing operations overview · ${monthName}` : "Billing operations overview."}
+      />
+      {isError && <ErrorState message="Could not load the dashboard figures." />}
 
-      <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4" aria-label="Key metrics">
-        <KpiCard label="Active agreements" value={null} hint="Available in Phase 9" />
-        <KpiCard label="Invoices due this month" value={null} hint="Available in Phase 9" />
-        <KpiCard label="Accepted by Riverty" value={null} hint="Available in Phase 9" />
+      <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5" aria-label="Key metrics">
+        <KpiCard
+          label="Active agreements"
+          value={kpis?.active_agreements ?? null}
+          hint={kpis ? `${kpis.paused_agreements} paused` : undefined}
+        />
+        <KpiCard
+          label={`Scheduled in ${monthName}`}
+          value={kpis ? formatMoney(kpis.month_scheduled.amount) : null}
+          hint={
+            kpis
+              ? `${plural(kpis.month_scheduled.count, "month")} · ${kpis.month_invoiced.count} invoiced, ${kpis.month_open.count} to go`
+              : undefined
+          }
+        />
+        <KpiCard
+          label="Accepted by Riverty"
+          value={kpis ? formatMoney(kpis.accepted_this_month.amount) : null}
+          hint={kpis ? `${plural(kpis.accepted_this_month.count, "invoice")} this month · not the same as paid` : undefined}
+        />
+        <KpiCard
+          label={kpis ? `Next ${kpis.upcoming_days} days` : "Coming up"}
+          value={kpis ? formatMoney(kpis.upcoming.amount) : null}
+          hint={kpis ? `${plural(kpis.upcoming.count, "month")} start billing` : undefined}
+        />
         <Link to="/jobs" className="block rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-500">
           <KpiCard
             label="Needs attention"
-            value={attention ? attention.total : null}
-            hint={attention && attention.total > 0 ? "Open Failed / pending jobs" : "Nothing to do"}
+            value={kpis?.needs_attention ?? null}
+            hint={kpis && kpis.needs_attention > 0 ? "Open Failed / pending jobs" : "Nothing to do"}
           />
         </Link>
       </section>
 
       <section className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <div className="rounded-lg border border-slate-200 bg-white p-4 lg:col-span-2">
-          <h2 className="text-sm font-semibold text-slate-900">Operational alerts</h2>
-          <p className="mt-6 text-center text-sm text-slate-500">No alerts. Alerting is added in Phase 9.</p>
-        </div>
+        <RecentActivity />
         <SystemHealthPanel />
       </section>
     </>
   );
+}
+
+function RecentActivity() {
+  const { data, isPending } = useAuditLogs({ page_size: 8 });
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white lg:col-span-2">
+      <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
+        <h2 className="text-sm font-semibold text-slate-900">Recent activity</h2>
+        <Link to="/audit-logs" className="text-sm font-medium text-slate-700 underline underline-offset-2">
+          Audit logs
+        </Link>
+      </div>
+      {isPending ? (
+        <div className="p-4">
+          <Spinner label="Loading" />
+        </div>
+      ) : !data || data.results.length === 0 ? (
+        <p className="px-4 py-6 text-center text-sm text-slate-500">Nothing recorded yet.</p>
+      ) : (
+        <AuditEntryList entries={data.results} compact />
+      )}
+    </div>
+  );
+}
+
+function plural(count: number, word: string): string {
+  return `${count} ${count === 1 ? word : `${word}s`}`;
+}
+
+/** "2026-11-01" -> "November 2026" (built from parts: no time-zone shift). */
+function monthLabel(isoDay: string): string {
+  const [year, month] = isoDay.split("-").map(Number);
+  return new Date(year, month - 1, 1).toLocaleDateString("en-GB", { month: "long", year: "numeric" });
 }
 
 const WORKER_LABEL: Record<WorkerStatus, string> = { ok: "Running", stale: "Stopped", unknown: "Not seen yet" };

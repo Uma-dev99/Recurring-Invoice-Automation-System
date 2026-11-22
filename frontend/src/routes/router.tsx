@@ -1,6 +1,7 @@
 import { createBrowserRouter } from "react-router";
 
 import { AppLayout } from "@/layouts/AppLayout";
+import { AuditLogsPage } from "@/pages/audit/AuditLogsPage";
 import { AgreementDetailPage } from "@/pages/agreements/AgreementDetailPage";
 import { AgreementNewPage } from "@/pages/agreements/AgreementNewPage";
 import { AgreementsPage } from "@/pages/agreements/AgreementsPage";
@@ -40,6 +41,7 @@ const invoiceRoutes = [
   { path: "invoices", element: <InvoicesPage /> },
   { path: "invoices/:invoiceId", element: <InvoiceDetailPage /> },
   { path: "jobs", element: <JobsPage /> },
+  { path: "audit-logs", element: <AuditLogsPage /> },
 ];
 
 export const router = createBrowserRouter([

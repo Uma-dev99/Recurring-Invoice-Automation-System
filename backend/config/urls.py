@@ -10,6 +10,8 @@ api_v1_patterns = [
     path("agreements/", include("apps.billing.urls")),  # .../agreements/<id>/periods/
     path("invoices/", include("apps.invoicing.urls")),
     path("attention/", include("apps.invoicing.attention_urls")),
+    path("dashboard/", include("apps.dashboard.urls")),
+    path("audit-logs/", include("apps.operations.urls")),
     path("schema/", SpectacularAPIView.as_view(), name="schema"),
     path("docs/", SpectacularSwaggerView.as_view(url_name="schema"), name="swagger-ui"),
 ]

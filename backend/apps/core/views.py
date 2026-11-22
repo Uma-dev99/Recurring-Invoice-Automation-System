@@ -51,3 +51,26 @@ class HealthCheckView(APIView):
             body,
             status=status.HTTP_200_OK if healthy else status.HTTP_503_SERVICE_UNAVAILABLE,
         )
+
+
+class LivenessView(APIView):
+    """Liveness probe: is the PROCESS alive and answering? Checks nothing else.
+
+    Different question from readiness (HealthCheckView). If the database is down,
+    restarting the web process wouldn't help, so liveness stays 200 while readiness
+    says 503. Orchestrators restart on failed liveness and stop routing traffic on
+    failed readiness; mixing the two causes needless restart loops.
+    """
+
+    authentication_classes: list = []
+    permission_classes = [AllowAny]
+
+    @extend_schema(
+        responses={
+            200: inline_serializer(
+                name="LivenessResponse", fields={"status": serializers.CharField()}
+            )
+        }
+    )
+    def get(self, request: Request) -> Response:
+        return Response({"status": "ok"})

@@ -23,6 +23,8 @@ from rest_framework.response import Response
 from rest_framework.settings import api_settings
 from rest_framework.views import exception_handler as drf_exception_handler
 
+from apps.core.request_id import current_request_id
+
 logger = logging.getLogger(__name__)
 
 
@@ -78,9 +80,25 @@ def api_exception_handler(exc: Exception, context: dict):
 
     response = drf_exception_handler(exc, context)
     if response is None:
-        # Unhandled exception: let Django return a 500 and log the traceback.
-        # Never leak internal error text to the client.
-        return None
+        # An unexpected error (a bug, or a dependency failing). Log the full traceback
+        # under this request's id, and answer in the same envelope as every other error,
+        # so the React client can show it. The client gets the request id as a reference,
+        # never the error text itself (that could leak internals).
+        request_id = current_request_id()
+        logger.error(
+            "Unhandled error in API view",
+            exc_info=(type(exc), exc, exc.__traceback__),
+            extra={"view": type(context.get("view")).__name__},
+        )
+        return Response(
+            _error_body(
+                "server_error",
+                "Something went wrong on our side. If it keeps happening, "
+                f"contact support and mention reference {request_id}.",
+                {"request_id": request_id},
+            ),
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
 
     if isinstance(exc, exceptions.ValidationError):
         response.data = _error_body("validation_error", "Invalid input.", response.data)

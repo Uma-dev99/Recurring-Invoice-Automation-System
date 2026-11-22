@@ -497,17 +497,17 @@ before production.
 1. ~~**Throttle counters are per-process.**~~ **Resolved in Phase 7:** `CACHES` now points
    at Redis, so every web process shares one login-attempt counter. (Before, each process
    kept its own in-memory count, so 4 processes allowed ~4× the limit.)
-2. **Throttling is by client IP.** Behind a reverse proxy every request may appear to come
-   from the proxy's IP, throttling everyone together. *Fix (Phase 10):* configure
-   `NUM_PROXIES` in `REST_FRAMEWORK` to match the deployment.
+2. ~~**Throttling is by client IP.**~~ **Resolved in Phase 10:** production sets
+   `REST_FRAMEWORK["NUM_PROXIES"]` from `DJANGO_NUM_PROXIES`, so the real client IP is
+   read from `X-Forwarded-For` (see [deployment.md](deployment.md)).
 3. **`DEFAULT_AUTO_FIELD = BigAutoField` vs UUID keys.** Harmless (it only applies to
    models that don't declare a PK), but new domain models must inherit `UUIDModel` /
    `TimeStampedModel` to follow D11. Worth a review checklist item.
-4. **Production settings are a stub**, explicitly scheduled for Phase 10 (gunicorn,
-   non-root image, `collectstatic`, structured logs, `CSRF_TRUSTED_ORIGINS` for the real
-   domain).
-5. **No `services.py` / `selectors.py` yet.** The layering in §6 is a rule to adopt from
-   Phase 2, not something the current code demonstrates.
+4. ~~**Production settings are a stub.**~~ **Resolved in Phase 10:** gunicorn, non-root
+   image, collected static files, JSON logs with request ids, required production
+   configuration. See [deployment.md](deployment.md).
+5. ~~**No `services.py` / `selectors.py` yet.**~~ **Resolved from Phase 2 on:** every
+   domain app now follows the layering in §6.
 
 ---
 
